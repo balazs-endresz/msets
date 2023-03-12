@@ -1,0 +1,4 @@
+:set -iapp -isrc
+:l Main
+:seti -XOverloadedLists -XLexicalNegation -XFlexibleContexts -XTypeFamilies -XRebindableSyntax
+:show
