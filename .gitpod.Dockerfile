@@ -17,12 +17,13 @@ ENV BOOTSTRAP_HASKELL_MINIMAL=true
 
 # Set up the environment. This will install the default versions of every tool.
 RUN ghcup install ghc 9.4.4
-RUN ghcup install hls
+RUN ghcup install hls 1.9.1.0
 RUN ghcup install stack
 RUN ghcup install cabal
 
 # Latest version supported by HLS
 RUN ghcup set ghc 9.4.4
+RUN ghcup set hls 1.9.1.0
 
 # change stack's configuration to use system installed ghc.
 # By default, stack tool will download its own version of the compiler,
