@@ -1,22 +1,42 @@
-# A Haskell template on Gitpod
+Haskell implementation of msets, based on the following videos:
 
-This is a [Haskell](https://haskell.org/) template configured for ephemeral development environments on [Gitpod](https://www.gitpod.io/).
-
-## Next Steps
+* The big step from polynumbers to multinumbers!! | Math Foundations 228 | N J Wildberger: https://www.youtube.com/watch?v=CScJqApRPZg
+* The operation of caret / exponentiation (new!) via multisets | Math Foundations 229 | N J Wildberger: https://www.youtube.com/watch?v=TqKacqHS-fA
+* Multiset arithmetic via trees | Math Foundations 230 | N J Wildberger: https://www.youtube.com/watch?v=62mY0kRQgsg
+* Negatives numbers from anti msets | Math Foundations 231 | N J Wildberger: https://www.youtube.com/watch?v=KQ1o_NYhQNA
 
 Click the button below to start a new development environment:
 
 [![Open in Gitpod](https://gitpod.io/button/open-in-gitpod.svg)](https://gitpod.io/#https://github.com/balazs-endresz/msets)
 
-## Get Started With Your Own Project
+(There might be some errors initially but those should clear after a minute as it installs everything.)
 
-### A new project
+Then type `ghci` in the terminal in the bottom panel. Within `ghci` one can perform operations with msest:
 
-Click the above "Open in Gitpod" button to start a new workspace. Once you're ready to push your first code changes, Gitpod will guide you to fork this project so you own it.
+```hs
+ghci> -0        -- anti-zero is represented as -0
+-0
+ghci> -[]       -- anti-msets are also using the same prefix operator (without a space)
+-0
+ghci> [1] + -0  -- adding -0 creates an anti mset
+-[1]
+ghci> [1] - 0   -- negation currently works more like with ordinary integers,
+[1]             -- but this might change later, see the `neg` function in `src/Msets.hs`
+ghci> [1,[2]] * [[3]]
+[[0,3],[2,3]]
+ghci> showAlpha [0,1,[2,3,3]]   -- render msets as expressions using alpha
+1+α₀+α₂α₃²                      -- (the logic of this will change for anti/negative values!)
+ghci> [1] + -0 == -[1]       -- type error, try adding a type annotation:
+ghci> [1] + -0 == (-[1]::M)  -- the type M is applied to one of the sub-expressions
+True
+ghci> [1] + -0 == fix -[1]   -- the `fix` function does the same
+True
+```
 
-### An existing project
+Most of the source code is in `src/Msets.hs`.
 
-If you have an existing project and you want to create a gitpod environment for it, you need to follow and take into account these considerations.
+Note that by the default `ghci` will use `RebindableSyntax`, but `src/Msets.hs` is currently written without it.
 
-- For maintainability reasons, the field `tasks.command` in the `.gitpod.yaml` is configured to **completely overwrites** the `.cabal` and `stack.yaml` files. This is likely not what you want, since all dependencies will be lost. Please, configure `task.command` with your build preferences.
-- This repo uses `ghcup` to install all the tooling. Alternative installation isn't recommended.
+The project is based on https://github.com/lsmor/template-haskell and bumps the default ghc version to 9.4.4
+
+To run locally install https://www.haskell.org/ghcup/ Upgrading the default ghc version might be needed too: `ghcup set ghc 9.4.4`. Then just type `ghci`.
