@@ -1,32 +1,25 @@
+{-# LANGUAGE GHC2021           #-}
 {-# LANGUAGE FlexibleContexts  #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE LexicalNegation   #-}
 {-# LANGUAGE OverloadedLists   #-}
 {-# LANGUAGE TypeFamilies      #-}
+-- {-# LANGUAGE PartialTypeSignatures #-}
+-- {-# LANGUAGE ScopedTypeVariables #-}
 
 {-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
 {-# HLINT ignore tests #-}
-{-# HLINT ignore printM #-}
-{-# HLINT ignore showMsetAsInt assertEq "Redundant bracket" #-}
-
--- The big step from polynumbers to multinumbers!! | Math Foundations 228 | N J Wildberger
---   https://www.youtube.com/watch?v=CScJqApRPZg
--- The operation of caret / exponentiation (new!) via multisets | Math Foundations 229 | N J Wildberger
---   https://www.youtube.com/watch?v=TqKacqHS-fA
--- Negatives numbers from anti msets | Math Foundations 231 | N J Wildberger
---   https://www.youtube.com/watch?v=KQ1o_NYhQNA
 
 module Msets where
 
+import Control.Applicative
 import Control.Exception (catch, ErrorCall)
 import Data.Char (isDigit)
-import Data.Functor
-import Data.List (group, intercalate, sort, delete, elemIndex)
+import Data.List (group, intercalate)
 import Data.Semigroup
 import GHC.Exts (IsList(..))
 import GHC.Stack (callStack,  prettyCallStack, HasCallStack)
 import Unsafe.Coerce (unsafeCoerce)
-
 
 -- Data
 data Mset a = AntiZero | Zero | Cons a (Mset a)
@@ -86,10 +79,23 @@ isAnti Zero        = False
 isAnti AntiZero    = True
 isAnti (Cons _ xs) = isAnti xs
 
--- negates the top level only and containing elements are left unchanged
-neg Zero        = AntiZero
-neg AntiZero    = Zero
-neg (Cons x xs) = Cons x (neg xs)
+-- takes the "anti" of the top level only; containing elements are left unchanged
+anti Zero        = AntiZero
+anti AntiZero    = Zero
+anti (Cons x xs) = Cons x (anti xs)
+
+-- shortcut for anti
+a = anti
+
+-- takes the "anti" of the immediate children, or the anti of an empty mset
+neg Zero = AntiZero
+neg AntiZero = Zero
+neg x = fmap anti x
+
+-- unlike `neg` this is not defined for empty msets (this might change later)
+isNeg Zero     = error "isNeg undefined for empty mset"
+isNeg AntiZero = error "isNeg undefined for empty mset"
+isNeg x        = all isAnti x
 
 -- filter elements (top level only)
 -- filterMset :: (a -> Bool) -> Mset a -> Mset a
@@ -99,60 +105,45 @@ filterMset pred (Cons x xs)
                  | pred x    = Cons x (filterMset pred xs)
                  | otherwise = filterMset pred xs
 
-sortMsetWith cmp mset = if isAnti mset then neg sorted else sorted
- where
-  sorted = foldr insertBy [] mset
-  insertBy x Zero     = Cons x Zero
-  insertBy x AntiZero = Cons x AntiZero
-  insertBy x ys@(Cons y ys')
-      | cmp x y == GT = Cons y (insertBy x ys')
-      | otherwise     = Cons x ys
+sortMsetWith cmp mset = if isAnti mset then anti sorted else sorted
+  where
+    sorted = foldr insertBy [] mset
+    insertBy x Zero     = Cons x Zero
+    insertBy x AntiZero = Cons x AntiZero
+    insertBy x ys@(Cons y ys')
+        | cmp x y == GT = Cons y (insertBy x ys')
+        | otherwise     = Cons x ys
 
 -- sort elements (top level only)
 sortMset :: (Ord a) => Mset a -> Mset a
 sortMset = sortMsetWith compare
 
--- make an anti-mset an mset of anti-msets (top level only)
-sinkAntiZero Zero     = Zero
-sinkAntiZero AntiZero = AntiZero
-sinkAntiZero xs | isAnti xs = neg (fmap neg xs)
-                | otherwise = xs
-
--- Make the top level mset anti-zero, instead of all of its immediate elements
-raiseAntiZero Zero     = Zero
-raiseAntiZero AntiZero = AntiZero
-raiseAntiZero xs | isAnti xs
-                 , not (all isAnti xs) = xs
-                 | all isAnti xs       = neg (fmap neg xs)
-                 | otherwise           = xs
+-- returns a new mset with the first argument removed from it
+deleteMset _ Zero        = Zero
+deleteMset _ AntiZero    = AntiZero
+deleteMset x (Cons y ys)
+             | x == y    = ys
+             | otherwise = Cons y (deleteMset x ys)
 
 -- eliminate mset and anti-mset pairs (top level only)
-eliminate Zero      = Zero
-eliminate AntiZero  = AntiZero
+-- TODO: add recursive variant
+eliminate Zero       = Zero
+eliminate AntiZero   = AntiZero
 eliminate (Cons x xs)
-  | neg x `elem` xs = eliminate (delete (neg x) xs)
-  | otherwise       = Cons x (eliminate xs)
-  where
-    delete _ Zero        = Zero
-    delete _ AntiZero    = AntiZero
-    delete x (Cons y ys) | x == y    = ys
-                         | otherwise = Cons y (delete x ys)
+  | anti x `elem` xs = eliminate (deleteMset (anti x) xs)
+  | otherwise        = Cons x (eliminate xs)
 
--- Applicative Mset is not defined because it can't handle anti-msets consistently
--- without adding more contraints on the type variable, which we can't do.
-liftA2Mset f x y = raiseAntiZero $ liftA2 f (sinkAntiZero x) (sinkAntiZero y)
-  where
-    liftA2 f AntiZero _        = undefined
-    liftA2 f _        AntiZero = undefined
-    liftA2 f Zero     _        = Zero
-    liftA2 f _        Zero     = Zero
-    liftA2 f (Cons x xs) ys    = append (fmap (f x) ys) (liftA2 f xs ys)
-    append AntiZero _        = undefined
-    append _        AntiZero = undefined
-    append Zero     ys       = ys
-    append xs       Zero     = xs
-    append (Cons x xs) ys    = Cons x (append xs ys)
 
+instance Applicative Mset where
+  pure x = Cons x Zero
+  fs <*> ys | isAnti fs, isAnti ys = anti fs <*> anti ys
+            | isAnti fs            = anti $ anti fs <*> ys
+            | isAnti ys            = anti $ fs <*> anti ys
+            | Zero <- fs           = Zero
+            | (Cons f fs') <- fs   = fmap f ys <> (fs' <*> ys)
+
+-- create a monomorphic function to avoid ambigous type errors (see caret/wedge in IsMset)
+liftA2Mset = liftA2 @Mset
 
 -- Ord
 instance Ord (Mset ()) where
@@ -161,7 +152,7 @@ instance Ord (Mset ()) where
     compare AntiZero Zero     = LT
     compare Zero     AntiZero = GT
 
-instance (Ord a, IsMset (Mset a), Ord (Mset a)) => Ord (Mset (Mset a)) where
+instance (Ord (Mset a)) => Ord (Mset (Mset a)) where
     compare AntiZero AntiZero = EQ
     compare Zero     Zero     = EQ
     compare AntiZero Zero     = LT
@@ -188,8 +179,7 @@ instance StrictEq (Mset ()) where
   AntiZero === AntiZero = True
   _        === _        = False
 
--- instance (StrictEq a, IsMset a) => StrictEq (Mset a) where
-instance (StrictEq (Mset a), IsMset (Mset a)) => StrictEq (Mset (Mset a)) where
+instance (StrictEq (Mset a)) => StrictEq (Mset (Mset a)) where
   Zero       === Zero       = True
   AntiZero   === AntiZero   = True
   (Cons a b) === (Cons c d) = (a === c) && (b === d)
@@ -203,26 +193,17 @@ instance Eq (Mset ())  where
   _        == _        = False
 
 -- Eq (Mset a)
-instance (Eq (Mset a), IsMset (Mset a)) => Eq (Mset (Mset a)) where
-  x == y = eq (normalize x) (normalize y)
-    where
-      normalize = eliminate . sinkAntiZero
-
-      eq Zero     Zero     = True
-      eq AntiZero AntiZero = True
-      eq (Cons x xs) ys = maybe False (eq xs . flip delete ys . nth ys) (elemIndex x ys)
-      eq _           _  = False
-
-
-      -- re-define list functions for msets:
-      nth = (!!) . toList  -- when inlined above this gives a type error -- why?
-      elemIndex x xs = go xs 0
-        where
-          go (Cons y ys) i = if x == y then Just i else go ys (i+1)
-          go _           _ = Nothing  -- empty
-      delete _ Zero        = Zero
-      delete _ AntiZero    = AntiZero
-      delete x (Cons y ys) = if x == y then ys else Cons y (delete x ys)
+instance (Eq (Mset a)) => Eq (Mset (Mset a)) where
+  x == y = eq (eliminate x) (eliminate y) where
+    eq Zero     Zero     = True
+    eq AntiZero AntiZero = True
+    eq (Cons x xs) ys = maybe False (eq xs . flip deleteMset ys . nth ys) (elemIndex x ys)
+    eq _           _  = False
+    -- re-define list functions for msets:
+    nth = (!!) . toList  -- when inlined above this gives a type error -- why?
+    elemIndex x xs = go xs 0 where
+      go (Cons y ys) i = if x == y then Just i else go ys (i+1)
+      go _           _ = Nothing  -- empty
 
 -- Show
 
@@ -231,11 +212,14 @@ showBase AntiZero = "-0"
 
 showMsetAsInt Zero     = showBase Zero
 showMsetAsInt AntiZero = showBase AntiZero
-showMsetAsInt x        = show $ if isAnti x then -n else n where
-  n = length (filterMset isZero x) - length (filterMset isAntiZero x)
+showMsetAsInt x | isAnti x  = 'a' : ' ' : showMsetAsInt (anti x)
+                | otherwise = show $
+    length (filterMset isZero x) - length (filterMset isAntiZero x)
 
-showMsetAsList f xs | isAnti xs = '-' : showMsetAsList f (neg xs)
+showMsetAsList f xs | isAnti xs = 'a' : ' ' : showMsetAsList f (anti xs)
+                    -- | isNeg xs  = '-' : showMsetAsList f (neg xs)  -- TODO
                     | otherwise =  "[" ++  (intercalate "," . map f . toList) xs  ++ "]"
+
 -- Show
 instance Show (Mset ()) where
   show = showBase
@@ -247,7 +231,7 @@ instance (IsMset (Mset a), Ord (Mset a), Show a, Show (Mset a)) => Show (Mset (M
   show x        = go (prepare x) where
     go x | isInt x   = showMsetAsInt x
          | otherwise = showMsetAsList show x
-    prepare = sortMset . raiseAntiZero' . eliminate . sinkAntiZero'
+    prepare = sortMset . eliminate
     -- prepare = id -- use this to show mset without "evaluating" it
 
 -- Show'
@@ -300,9 +284,19 @@ sup = pick "⁰¹²³⁴⁵⁶⁷⁸⁹"
 alphaSub = ('α':) . sub
 alphaSup = ('α':) . sup
 
-α :: Int -> Alpha
-α n = [[fromIntegral n]]
-alpha = α
+-- to be used without RebindableSyntax
+alphaI :: Int -> Alpha
+alphaI n = [[fromIntegral n]]
+
+-- to be used with RebindableSyntax
+alphaM :: (forall a. Mset (Mset a)) -> Alpha
+alphaM n = [[n]]
+
+-- assume RebindableSyntax by default
+alpha = alphaM
+α = alpha
+
+-- TODO: add Integral mset instance to have a single alpha function
 
 -- TODO: define more with template haskell
 α₀,α₁,α₂,α₃,α₀²,α₁²,α₂²,α₃² :: Alpha
@@ -334,9 +328,10 @@ instance ShowA IntM where
 instance (IsMset (Mset a), ShowA (Mset a), ShowA (Mset (Mset a)), Ord (Mset a), Ord a)
          => ShowA (Mset (Mset (Mset a))) where
   -- TODO: rewrite this in a more sensible way
+  -- TODO: handle anti-msets correctly, e.g. minus alpha to the minus one
   showAlpha x = plusMinToMin $ showAntiA go (prepare x)
     where
-      prepare = sortMsetWith compareA . raiseAntiZero' . eliminate . sinkAntiZero'
+      prepare = sortMsetWith compareA . eliminate
       go x  | isEmpty x      = showBase x
             | isInt x        = showMsetAsInt x
             | maxDepth x < 4 = showSum x  -- Poly and Multi (or generic variants)
@@ -356,7 +351,7 @@ instance (IsMset (Mset a), ShowA (Mset a), ShowA (Mset (Mset a)), Ord (Mset a), 
                     | otherwise = e             -- alpha sub n
       -- countOccurrences :: (Ord (Item l), IsList l) => l -> [(Item l, Int)]
       countOccurrences = map (\(x:xs) -> (x, 1 + length xs)) . group . toList
-      showAntiA f x | isAnti x  = '-':(removePlus . map flipSigns . f . neg) x
+      showAntiA f x | isAnti x  = '-':(removePlus . map flipSigns . f . anti) x
                     | otherwise = f x
         where
           removePlus ('+':xs) = xs
@@ -400,25 +395,14 @@ instance IsList (Mset a) where
   -- https://downloads.haskell.org/~ghc/9.4.1-rc1/docs/users_guide/exts/overloaded_lists.html?highlight=defaulting#defaulting
 
 -- Semigroup
--- Allows msets to be concatenated, respecting (non-empty) anti-msets too.
--- It might turn an anti-mset to an mset of anti-msets.
--- Does not allow concatenating empty anti-msets to anything,
--- and not defined for the (concrete) Base type either, unlike `+`.
--- These restrictions are not strictly necessary, we could define this to equal `+`.
-instance IsMset a => Semigroup (Mset a) where
-  _        <> AntiZero = undefined
-  AntiZero <> _        = undefined
-  xs       <> Zero     = xs
-  Zero     <> ys       = ys
-  xs       <> ys       = concatMsets (sinkAntiZero xs) (sinkAntiZero ys)
-    where
-      concatMsets AntiZero    _  = undefined
-      concatMsets _    AntiZero  = undefined
-      concatMsets Zero        ys = ys
-      concatMsets (Cons x xs) ys = Cons x (concatMsets xs ys)
-      -- <> for lists is ++:
-      -- (++) []     ys = ys
-      -- (++) (x:xs) ys = x : xs ++ ys
+-- Concatenate msets (without eliminating anti and non-anti pairs).
+instance Semigroup (Mset a) where
+  Zero <> y  = y
+  x    <> y | isAnti x, isAnti y = anti x <> anti y
+            | isAnti x           = anti (anti x <> y)
+            | isAnti y           = anti (x <> anti y)
+            | (Cons x' xs) <- x  = Cons x' (xs <> y)
+
 
 -- Num (Base)
 instance Num (Mset ()) where
@@ -438,13 +422,17 @@ instance IsMset (Mset a) => Num (Mset (Mset a)) where
   (*) = times
   negate = neg
   fromInteger n | n == 0 = Zero
-                | n >  0 = stimes n (Cons Zero Zero)
-                | n <  0 = neg (fromInteger -n)
-                -- | n < 0  = neg $ stimes -n (Cons Zero Zero)
+                | n >  0 = stimes  n (Cons Zero     Zero)
+                | n <  0 = stimes -n (Cons AntiZero Zero)
 
-  -- TODO: These might not make sense for a general mset. Maybe specifiy them for IntM/isInt only?
+  -- TODO: These might not make sense for a general mset.
+  -- Maybe specifiy them for IntM/isInt only? + eliminate first?
   abs = undefined
   signum = undefined
+  -- abs x = if isNeg x then neg x else x
+  -- signum Zero     = 0
+  -- signum AntiZero = 0
+  -- signum x        = if isNeg x then -1 else 1
 
 
 -- IsMset
@@ -467,41 +455,33 @@ class (a ~ Mset (Elem a)) => IsMset a where
   (∧) = caret
   infixr 8 ∧
 
-  sinkAntiZero'  :: a -> a  -- recursive / full depth
-  raiseAntiZero' :: a -> a  -- recursive / full depth
   minDepth :: (Num b, Ord b) => a -> b
   maxDepth :: (Num b, Ord b) => a -> b
 
-  -- negation has some special rules to avoid contradictions like:
-  -- (-0 - p)  !=  -(0 + p)
-  -- p - 0 = -p  -- this would differ from how normal integers work)
-  -- TODO: this hasn't yet been covered in videos, it might change
   minus :: a -> a -> a
-  minus x        Zero     = x
-  minus x        AntiZero = x
-  minus Zero     y        = neg y
-  minus AntiZero y        = neg y
-  minus x        y        = plus x (neg y)
+
 
 -- Counting functions: https://youtu.be/TqKacqHS-fA?t=645
--- But they return an anti-mset when applied to an anti-mset
-countZ :: Mset a -> Mset a  -- `a` is already an Mset here
-countZ = const Zero
-countN :: Mset (Mset a) -> Mset (Mset a)
+-- Unlike the ones in the video these return an anti-mset when applied to an anti-mset
+countZ :: Mset a -> Mset b
+countZ Zero        = Zero
+countZ AntiZero    = AntiZero
+countZ (Cons _ xs) = countZ xs
+countN :: Mset (Mset a) -> Mset (Mset b)
 countN = fmap countZ
-countP :: Mset (Mset (Mset a)) -> Mset (Mset (Mset a))
+countP :: Mset (Mset (Mset a)) -> Mset (Mset (Mset b))
 countP = fmap countN
-countM :: Mset (Mset (Mset (Mset a))) -> Mset (Mset (Mset (Mset a)))
+countM :: Mset (Mset (Mset (Mset a))) -> Mset (Mset (Mset (Mset b)))
 countM = fmap countP
 -- Same functions but with fixed return types:
 countZ' :: Mset a -> Base
-countZ' = const Zero
+countZ' = countZ
 countN' :: Mset (Mset a) -> IntM
-countN' = fmap countZ'
+countN' = countN
 countP' :: Mset (Mset (Mset a)) -> Poly
-countP' = fmap countN'
+countP' = countP
 countM' :: Mset (Mset (Mset (Mset a))) -> Multi
-countM' = fmap countP'
+countM' = countM
 
 -- We have recursive `Mset a` instances for all higher levels, so this might just be safe.
 -- e.g. `upcast (2::IntM) + ([3]::Poly)`
@@ -524,23 +504,18 @@ instance IsMset (Mset ()) where
   caret = baseOp
   minDepth = const 0
   maxDepth = const 0
-  sinkAntiZero' = id
-  raiseAntiZero' = id
+  minus = baseOp  -- TODO
 
 instance (IsMset (Mset a)) => IsMset (Mset (Mset a)) where
   type Elem (Mset (Mset a)) = (Mset a)
 
   -- laws for anti-msets, plus, minus: https://www.youtube.com/watch?v=KQ1o_NYhQNA
-  plus  AntiZero x        = neg x
-  plus  x        AntiZero = neg x
-  plus  Zero     x        = x
-  plus  x        Zero     = x
-  plus  x        y        = x <> y  -- both x and y are non-empty here
+  plus = (<>)
 
   times AntiZero AntiZero = Zero
   times AntiZero x        = AntiZero  -- M*-0=-0 if M!=-0
   times x        AntiZero = AntiZero
-  times x        y        = liftA2Mset plus x y
+  times x        y        = liftA2Mset plus x y  -- here liftA2 works too
 
   -- laws for caret: https://youtu.be/TqKacqHS-fA?t=1789
   -- TODO: rename to wedge? because we have ^ for the ordinary exponentiation built-in
@@ -549,11 +524,8 @@ instance (IsMset (Mset a)) => IsMset (Mset (Mset a)) where
   caret AntiZero x        = AntiZero  -- M^-0=-0 if M!=-0 ???
   caret x        AntiZero = AntiZero
   caret x        y        = liftA2Mset times x y
-
-  -- recursive / full depth
-  sinkAntiZero'  = fmap sinkAntiZero' . sinkAntiZero
-  raiseAntiZero' = raiseAntiZero . fmap raiseAntiZero'
-
+  -- caret x        y        = liftA2 times x y   -- why won't these work???
+  -- caret x        y        = liftA2 @Mset times x y
 
   minDepth Zero     = 0
   minDepth AntiZero = 0
@@ -563,9 +535,18 @@ instance (IsMset (Mset a)) => IsMset (Mset (Mset a)) where
   maxDepth AntiZero = 0
   maxDepth x        = 1 + maximum (fmap maxDepth x)
 
+  -- negation has some special rules to avoid contradictions like:
+  -- (-0 - p)  !=  -(0 + p)
+  -- p - 0 = -p  -- this would differ from how normal integers work)
+  -- TODO: this hasn't yet been covered in videos, it might change
+  minus x        Zero     = x
+  minus x        AntiZero = x
+  minus Zero     y        = neg y
+  minus AntiZero y        = neg y
+  minus x        y        = plus x (neg y)
 
 assertEq :: (HasCallStack, Eq a, Show a) => a -> a -> IO ()
-assertEq x y | (x == y) && ((show x) == (show y)) = putStr "."
+assertEq x y | (x == y) && (show x == show y) = putStr "."
              | otherwise = msgStacktraced $ show x ++ "  !=  " ++ show y
 
 infixl 1 ==:
@@ -594,12 +575,28 @@ msgStacktraced msg = putStrLn $ "\nFAIL " ++ fromCallStack callStack ++ ": " ++ 
     lineNumber = takeWhile (/= ':') . drop 4 . dropWhile (/= '.')
 
 tests = do
+  []   =: Zero
+  -[]  =: AntiZero
+  0    =: Zero
+  -0   =: AntiZero
+  a [] =: AntiZero
+  (-0::M) ==  (0::M) ==: False  -- 0 and -0 shouldn't equal as mests
+  (-0::M) === (0::M) ==: False  -- 0 and -0 shouldn't equal as mests
+  -0 == 0 ==: True   -- without RebindableSyntax these will default to Int
+
+  [0] + -[]     =: [0] + a []
+  [0] + -[]     =: a 1
+  [0] + a [0]   =: a 2
+  [0] + -[0]    =: 0
+  [0] + a -[0]  =: [0] + a [a 0]
+  [1] + a [a 0] =: a [1, a 0]
+
   -(-0) =: 0
-  -0    =: neg 0
+  -0    =: a 0
   0+0   =: 0
   0+ -0 =: -0
   -1    =: neg 1
-  -[0]  =: [-0]
+  -[0]  =: [a 0]
   1+1   =: 2
   1+0   =: 1
   1+1   =: 2
@@ -607,17 +604,19 @@ tests = do
   -[0]  =: -1
   -[-0] =: 1
 
-  1 +(-0)       =: -1
-  [0] + -0 + 0  =: -1
-  [2] + -0      =: -[2]
-  -[1]+[0,0]    =: [-1,0,0]
-  [2,[-3]] + -0 =: -[-[3],2]
+  1 + -0        =: a 1
+  [0] +  -0 + 0 =: a 1
+  [0] + a 0 + 0 =: a 1
+  -- [2] + -0      =: a [2]
+  -- -[1]+[0,0]    =: [-1,0,0]
+  [2,[-3]] + -0 =: a [2,[-3]]
   1 * -0        =: -0
   [1]*[1]       =: [2]
   [1,2] * -0    =: -0
   -0 * -0       =:  0
   -0*[1,2]      =: -0
-  [1,-0,0]*[1,-0,0] =: [2]
+  [1,a 0,0] * [1, a 0,0] =: [2]
+  [1, -0,0] * [1,  -0,0] =: [2] -- TODO this should be [2] as well!
 
   -- negation
   0  -  0 =:  0
@@ -630,10 +629,9 @@ tests = do
   -0 -  1 =: -1
   -0 - -1 =:  1
 
-  let x = -[-[1], 2, [], -0]
-  let xSquared = [-4,[-0,-0,1],[-0,-0,1],[1,1]]
+  let x = a [a [1], 2, [], -0]
+  let xSquared = [a [0,0,1],a [0,0,1],4,[1,1]]
   xSquared =: x*x
-  xSquared =: [-2,[1]]*[-2,[1]]
 
   -- https://youtu.be/TqKacqHS-fA?t=1265
   let c1 = [[1, 2], 4]
@@ -648,34 +646,34 @@ tests = do
   assertRaises ([1] :: IntM)
   return ([1] :: Poly)  -- no exception
 
-  fmap (*Cons Zero AntiZero) [2,1] =: -[2,1]
-  fmap (*Cons AntiZero Zero) [2,1] =: -[2,1]
-  fmap (+Cons AntiZero Zero) [2,1] =:  [1,0]
-  fmap (+Cons Zero AntiZero) [2,1] =:  [1,0]
-  fmap id (Cons Zero AntiZero)       =:  -1
-  (fmap raiseAntiZero . fmap) (*Cons AntiZero Zero) [2,1] =: [-1,-2]
+  fmap (*Cons Zero AntiZero) [2,1] =: [a 2,a 1] -- fmap (a 1 *)
+  fmap (*Cons AntiZero Zero) [2,1] =: [-1,-2]   -- fmap ( -1 *)
+  fmap (+Cons AntiZero Zero) [2,1] =: [1,0]     -- fmap ( -1 +)
+  fmap (+Cons Zero AntiZero) [2,1] =: [a 3,a 2] -- fmap (a 1 +)
+  fmap id (Cons Zero AntiZero)     =: a 1
 
   (traverse pure (-[ 1, 2]::M) :: Maybe M) ==: Just -[1,2]
-  (traverse pure ( [-1,-2]::M) :: Maybe M) ==: Just -[1,2]
+  (traverse pure ( [-1,-2]::M) :: Maybe M) ==: Just [-1,-2]
   (traverse pure ( [-1, 2]::M) :: Maybe M) ==: Just [-1,2]
 
-  filterMset (const True)   [2,1] =:  [2,1]
-  filterMset (const True)  -[2,1] =: -[2,1]
-  filterMset (const False)  [2,1] =:   0
-  filterMset (const False) -[2,1] =:  -0
-  filterMset isEmpty        [2,0] =:   1 -- [0]
-  filterMset isZero         [2,0] =:   1 -- [0]
-  filterMset isInt [2,0,[3],-1,0] =:  [2,0,-1,0]
+  filterMset (const True)     [2,1]  =:  [2,1]
+  filterMset (const True)    -[2,1]  =: -[2,1]
+  filterMset (const False)    [2,1]  =:   0
+  filterMset (const False)   -[2,1]  =:   0  -- -[2,1] == [a 2, a 1]
+  filterMset (const False) (a [2,1]) =:  -0
+  filterMset isEmpty          [2,0]  =:  [0]
+  filterMset isZero           [2,0]  =:  [0]
+  filterMset isInt    [2,0,[3],-1,0] =:  [2,0,-1,0]
 
   let x = -[] + [-[1], 2, 3, [], -0]
-  let result = [-[1,1,1],-[1,1,1],-[1,1],-[1,1],4,6,6,9,[2]]
-  x           ∧ x =: result
-  [-3,-2,[1]] ∧ x =: result
-  x ∧ [-3,-2,[1]] =: result
-  [-3,-2,[1]]  ∧ [-3,-2,[1]] =: result
-  [-2,[1]]     ∧ [-2,[1]]    =: [-[1,1],-[1,1],4,[2]]
+  let result = [9,6,[a 1,a 1,a 1], 6,4,[a 1,a 1], [a 1,a 1,a 1],[a 1,a 1],[2]]
+  x ∧ x =: result
+  a [[a 1],2,3] ∧ x =: result
+  x ∧ a [[a 1],2,3] =: result
+  a [[a 1],2,3] ∧ a [[a 1],2,3] =: result
+  [-2,[1]]     ∧ [-2,[1]] =: [-[1,1],-[1,1],4,[2]]
   -[-3,-2,[1]] ∧  0 =:  0
-  -[-3,-2,[1]] ∧  1 =:  3
+  -[-3,-2,[1]] ∧  1 =: -3
   [-3,-2,[1]]  ∧ -0 =: -0  -- TODO: follow the same rule as multiply?
   -[-3,-2,[1]] ∧ -0 =: -0
   -[1]         ∧ -1 =: -1
@@ -686,12 +684,11 @@ tests = do
   minDepth ([3,[1,[[2]]]]::M) =: 2
   maxDepth ([3,[1,[[2]]]]::M) =: 5
 
-
-  (showZeros . raiseAntiZero') ([[[-0]]]::M) ==: "-[[[0]]]"
-  (showZeros . sinkAntiZero')  (-[[[0]]]::M) ==: "[[[-0]]]"
+  -- showZeros ([[[-0]]]::M) ==: "[[[-0]]]"
+  -- showZeros (-[[[0]]]::M) ==: "-[[[0]]]"
 
   -- Eq, StrictEq
-  ((Cons AntiZero Zero::M) ==  Cons Zero AntiZero) ==: True
+  ((Cons AntiZero Zero::M) ==  Cons Zero AntiZero) ==: False
   ((Cons AntiZero Zero::M) === Cons Zero AntiZero) ==: False
   ((Cons Zero AntiZero::M) === Cons Zero AntiZero) ==: True
 
@@ -707,7 +704,6 @@ tests = do
   α₁*α₁      =: [α₀+α₀]
   α₁*α₁      =: [[1,1]]
   α₁*α₁*α₁   =: [[1,1,1]]
-  α₂         =: [α₀*α₀]
   α₂         =: [[2]]
   2*α₂       =: α₂+α₂
   2*α₂       =: [[2],[2]]
@@ -725,7 +721,6 @@ tests = do
   [0,0]    =@ "2"
   -[0,0]   =@ "-2"
   [0,-0,1] =@ "α₀"
-  [-[2],0] =@ "1-α₂"
 
   show (-0::Base) ==: "-0"  -- won't work with RebindableSyntax because 0 is Mset (Mset a)
   show (-0::M)    ==: "-0"

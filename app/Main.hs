@@ -1,3 +1,4 @@
+{-# LANGUAGE GHC2021          #-}
 {-# LANGUAGE RebindableSyntax #-}
 {-# LANGUAGE LexicalNegation  #-}
 
@@ -10,14 +11,13 @@ import Prelude hiding (fromListN, fromInteger)
 import GHC.Exts (toList)  -- required for list syntax pattern matching
 import Msets
 
-
 izero = fromIntegral (maxBound - maxBound :: Int)
 -- succ/pred izero to get other numbers
 
 -- fromMset can be used safely with numeric literals but is a partial function for general msets
 -- fromMset :: Num b => Mset (Mset a) -> b
 fromMset AntiZero      = error "Can't convert -0 to Int or Integer"
-fromMset x | isAnti x  = negate $ fromMset (neg x)
+fromMset x | isNeg x   = negate $ fromMset (neg x)
            | isInt  x  = fromIntegral . length $ x
            | otherwise = error "Only an mset of empty msets can be converted to Int or Integer"
 msetToInt     x = fromMset x :: Int

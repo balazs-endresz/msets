@@ -1,13 +1,13 @@
 Haskell implementation of msets, based on the following videos:
 
-* The big step from polynumbers to multinumbers!! | Math Foundations 228 | N J Wildberger: https://www.youtube.com/watch?v=CScJqApRPZg
-* The operation of caret / exponentiation (new!) via multisets | Math Foundations 229 | N J Wildberger: https://www.youtube.com/watch?v=TqKacqHS-fA
-* Multiset arithmetic via trees | Math Foundations 230 | N J Wildberger: https://www.youtube.com/watch?v=62mY0kRQgsg
-* Negatives numbers from anti msets | Math Foundations 231 | N J Wildberger: https://www.youtube.com/watch?v=KQ1o_NYhQNA
+* [The big step from polynumbers to multinumbers!! | Math Foundations 228 | N J Wildberger](https://www.youtube.com/watch?v=CScJqApRPZg)
+* [The operation of caret / exponentiation (new!) via multisets | Math Foundations 229 | N J Wildberger](https://www.youtube.com/watch?v=TqKacqHS-fA)
+* [Multiset arithmetic via trees | Math Foundations 230 | N J Wildberger](https://www.youtube.com/watch?v=62mY0kRQgsg)
+* [Negatives numbers from anti msets | Math Foundations 231 | N J Wildberger](https://www.youtube.com/watch?v=KQ1o_NYhQNA)
+* [More arithmetic with negative msets | Math Foundations 232 | N J Wildberger](https://www.youtube.com/watch?v=5Rr-ZT6A7cw)
 
 TODO:
 
-* [ ] Currently this _incorrectly_ assumes that an anti-mset is equal to an mset of anti-msets. Re-using the prefix `-` operator alone will not be suffcient to cover both cases. (See MF232 that shows the difference more explicitly)
 * [ ] Fix `showAlpha` for polynumbers and handle an anti-mset of anti-msets correctly.
 
 Click the button below to start a new development environment:
