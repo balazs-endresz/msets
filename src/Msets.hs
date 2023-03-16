@@ -134,17 +134,6 @@ eliminate (Cons x xs)
   | otherwise        = Cons x (eliminate xs)
 
 
-instance Applicative Mset where
-  pure x = Cons x Zero
-  fs <*> ys | isAnti fs, isAnti ys = anti fs <*> anti ys
-            | isAnti fs            = anti $ anti fs <*> ys
-            | isAnti ys            = anti $ fs <*> anti ys
-            | Zero <- fs           = Zero
-            | (Cons f fs') <- fs   = fmap f ys <> (fs' <*> ys)
-
--- create a monomorphic function to avoid ambigous type errors (see caret/wedge in IsMset)
-liftA2Mset = liftA2 @Mset
-
 -- Ord
 instance Ord (Mset ()) where
     compare AntiZero AntiZero = EQ
@@ -394,15 +383,26 @@ instance IsList (Mset a) where
   -- There's currently no way to make Mset the default instance for [], see:
   -- https://downloads.haskell.org/~ghc/9.4.1-rc1/docs/users_guide/exts/overloaded_lists.html?highlight=defaulting#defaulting
 
+-- This helper function takes care of the anti-ness of either msets when
+-- they are passed to a binary function. A bit contrived but fun abstraction.
+mkBinOp ifZero ifNonZero = go where
+  go x y | Zero <- x          = ifZero y
+         | isAnti x, isAnti y = anti x `go` anti y
+         | isAnti x           = anti (anti x `go` y)
+         | isAnti y           = anti (x `go` anti y)
+         | (Cons x' xs) <- x  = ifNonZero x' xs y
+
 -- Semigroup
 -- Concatenate msets (without eliminating anti and non-anti pairs).
 instance Semigroup (Mset a) where
-  Zero <> y  = y
-  x    <> y | isAnti x, isAnti y = anti x <> anti y
-            | isAnti x           = anti (anti x <> y)
-            | isAnti y           = anti (x <> anti y)
-            | (Cons x' xs) <- x  = Cons x' (xs <> y)
+  (<>) = mkBinOp id $ \x xs ys -> Cons x (xs <> ys)
 
+instance Applicative Mset where
+  pure x = Cons x Zero
+  (<*>) = mkBinOp (const Zero) $ \fx fxs ys -> fmap fx ys <> (fxs <*> ys)
+
+-- create a monomorphic function to avoid ambigous type errors (see caret/wedge in IsMset)
+liftA2Mset = liftA2 @Mset
 
 -- Num (Base)
 instance Num (Mset ()) where
