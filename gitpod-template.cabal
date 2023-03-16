@@ -2,7 +2,7 @@ cabal-version:      2.4
 name:               gitpod-template
 version:            0.1.0.0
 synopsis:           See README for more info
-tested-with:        GHC==8.10.7
+tested-with:        GHC==9.4.4
 
 -- A longer description of the package.
 -- description:
@@ -30,7 +30,7 @@ library
 
     -- LANGUAGE extensions used by modules in this package.
     -- other-extensions:
-    build-depends:    base ^>=4.14.3.0
+    build-depends:    base ^>=4.17.0.0
     hs-source-dirs:   src
     default-language: Haskell2010
 
@@ -43,7 +43,7 @@ executable gitpod-template
     -- LANGUAGE extensions used by modules in this package.
     -- other-extensions:
     build-depends:
-        base ^>=4.14.3.0,
+        base ^>=4.17.0.0,
         gitpod-template
 
     hs-source-dirs:   app
@@ -54,4 +54,4 @@ test-suite gitpod-template-test
     type:             exitcode-stdio-1.0
     hs-source-dirs:   test
     main-is:          MyLibTest.hs
-    build-depends:    base ^>=4.14.3.0
+    build-depends:    base ^>=4.17.0.0
