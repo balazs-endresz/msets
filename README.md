@@ -9,6 +9,7 @@ Haskell implementation of msets, based on the following videos:
 TODO:
 
 * [ ] Fix `showAlpha` for polynumbers and handle an anti-mset of anti-msets correctly.
+* [ ] QuickCheck tests
 
 Click the button below to start a new development environment:
 
@@ -19,22 +20,24 @@ Click the button below to start a new development environment:
 Then type `ghci` in the terminal in the bottom panel. Within `ghci` one can perform operations with msest:
 
 ```hs
-ghci> -0        -- anti-zero is represented as -0
--0
-ghci> -[]       -- anti-msets are also using the same prefix operator (without a space)
+ghci> -0        -- anti-zero is represented as -0, or -[]
 -0
 ghci> [1] + -0  -- adding -0 creates an anti mset
--[1]
+a [1]
+ghci> -[0,0]    -- for anything that's not 0 the minus sign makes only the elements "anti"
+-2              -- == [-0,-0]
+ghci> a -[0,0]  -- the function `a` makes an mset an anti-mset (not the elements)
+a -2            -- == a [-0,-0]
 ghci> [1] - 0   -- negation currently works more like with ordinary integers,
 [1]             -- but this might change later, see the `neg` function in `src/Msets.hs`
 ghci> [1,[2]] * [[3]]
 [[0,3],[2,3]]
-ghci> showAlpha [0,1,[2,3,3]]   -- render msets as expressions using alpha
-1+α₀+α₂α₃²                      -- (the logic of this will change for anti/negative values!)
-ghci> [1] + -0 == -[1]       -- type error, try adding a type annotation:
-ghci> [1] + -0 == (-[1]::M)  -- the type M is applied to one of the sub-expressions
+ghci> showAlpha [0,1,[2,3,3]] -- render msets as expressions using alpha
+1+α₀+α₂α₃²                    -- anti/negative is not rendered correctly yet as alpha
+ghci> [1] + -0 == a [1]       -- type error, try adding a type annotation:
+ghci> [1] + -0 == (a [1]::M)  -- the type M is applied to one of the sub-expressions
 True
-ghci> [1] + -0 == fix -[1]   -- the `fix` function does the same
+ghci> [1] + -0 == fix (a [1]) -- the `fix` function does the same
 True
 ```
 

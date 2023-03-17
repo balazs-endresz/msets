@@ -286,6 +286,7 @@ alpha = alphaM
 α = alpha
 
 -- TODO: add Integral mset instance to have a single alpha function
+-- https://wiki.haskell.org/Power_function
 
 -- TODO: define more with template haskell
 α₀,α₁,α₂,α₃,α₀²,α₁²,α₂²,α₃² :: Alpha
@@ -678,8 +679,8 @@ tests = do
   -[-3,-2,[1]] ∧ -0 =: -0
   -[1]         ∧ -1 =: -1
   -[1,1]       ∧ -1 =: -2
-  -[1,1,1]     ∧ -1 =: -3
-  -[1,1,1,1]   ∧ -1 =: -4
+  a [1]        ∧ -1 =: a -1
+  a [1,1]      ∧ -1 =: a -2
 
   minDepth ([3,[1,[[2]]]]::M) =: 2
   maxDepth ([3,[1,[[2]]]]::M) =: 5
