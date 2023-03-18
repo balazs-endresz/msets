@@ -67,7 +67,7 @@ isEmpty _        = False
 
 -- returns True for [] and -[] too, but using it with Base is a type error
 -- isInt :: Mset (Mset a) -> Bool
-isInt = all isEmpty
+isInt x = not (isAnti x) && all isEmpty x
 
 baseOp Zero     Zero     = Zero
 baseOp AntiZero AntiZero = Zero
@@ -92,18 +92,18 @@ neg Zero = AntiZero
 neg AntiZero = Zero
 neg x = fmap anti x
 
--- unlike `neg` this is not defined for empty msets (this might change later)
-isNeg Zero     = error "isNeg undefined for empty mset"
-isNeg AntiZero = error "isNeg undefined for empty mset"
+-- this is defined for empty msets too (maybe shouldn't be but makes things easier)
+isNeg Zero     = False
+isNeg AntiZero = True
 isNeg x        = all isAnti x
 
 -- filter elements (top level only)
 -- filterMset :: (a -> Bool) -> Mset a -> Mset a
-filterMset _     Zero        = Zero
-filterMset _     AntiZero    = AntiZero
-filterMset pred (Cons x xs)
-                 | pred x    = Cons x (filterMset pred xs)
-                 | otherwise = filterMset pred xs
+filterMset _ Zero     = Zero
+filterMset _ AntiZero = AntiZero
+filterMset f (Cons x xs)
+         | f x        = Cons x (filterMset f xs)
+         | otherwise  = filterMset f xs
 
 sortMsetWith cmp mset = if isAnti mset then anti sorted else sorted
   where
@@ -356,17 +356,16 @@ instance (IsMset (Mset a), ShowA (Mset a), ShowA (Mset (Mset a)), Ord (Mset a), 
         r start (x:xs)       = r (start ++ [x]) xs
         r start []           = start
       -- same as `compare` but moves constants to the front in alpha expressions
-      compareA x        Zero     = GT
-      compareA x        AntiZero = GT
-      compareA Zero     x        = LT
-      compareA AntiZero x        = LT
+      compareA _        Zero     = GT
+      compareA _        AntiZero = GT
+      compareA Zero     _        = LT
+      compareA AntiZero _        = LT
       compareA x        y        = compare x y
       opTimes = ""
       opExp = ""
       -- to render as valid code replace the last two above with:
       -- opTimes = "*"
-      -- opExp = "^"
-
+      -- opExp = "^"  -- (^) :: (Num a, Integral b) => a -> b -> a
 
 -- List
 -- The list instance is defined for use mainly by the OverloadedLists extension.
@@ -402,8 +401,34 @@ instance Applicative Mset where
   pure x = Cons x Zero
   (<*>) = mkBinOp (const Zero) $ \fx fxs ys -> fmap fx ys <> (fxs <*> ys)
 
--- create a monomorphic function to avoid ambigous type errors (see caret/wedge in IsMset)
+-- create a less polymorphic function to avoid ambigous type errors (see caret/wedge in IsMset)
 liftA2Mset = liftA2 @Mset
+
+
+-- TODO: check with and without RebindableSyntax
+-- TODO: try to make these work for polymorphic msets too:
+--       • Couldn't match type ‘a1’ with ‘Elem (Mset a1)’
+--       • Could not deduce (Elem (Mset a0) ~ a0)
+
+-- Enum (superclass of Integral)
+instance (IsMset a, Ord a) => Enum (Mset a) where
+  toEnum   = fromIntegral
+  fromEnum = assertInt fromIntegral
+
+-- Real (superclass of Integral)
+instance (IsMset a, Ord a) => Real (Mset a) where
+  toRational = assertInt fromIntegral
+
+-- Integral
+instance (IsMset a, Ord a) => Integral (Mset a) where
+  quotRem x y = (fromIntegral q, fromIntegral r) where
+    (q,r) = quotRem (toInteger x) (toInteger y)
+  toInteger = fromIntegral . assertInt toIntegral where
+    toIntegral x | isNeg x   = -(toIntegral (neg x))
+                 | otherwise = fromIntegral (length x)
+
+assertInt f x = if not (isInt x) then error "non-integer shaped mset" else f x
+
 
 -- Num (Base)
 instance Num (Mset ()) where
@@ -434,7 +459,6 @@ instance IsMset (Mset a) => Num (Mset (Mset a)) where
   -- signum Zero     = 0
   -- signum AntiZero = 0
   -- signum x        = if isNeg x then -1 else 1
-
 
 -- IsMset
 -- This class allows defining operations between:
@@ -584,6 +608,7 @@ tests = do
   (-0::M) ==  (0::M) ==: False  -- 0 and -0 shouldn't equal as mests
   (-0::M) === (0::M) ==: False  -- 0 and -0 shouldn't equal as mests
   -0 == 0 ==: True   -- without RebindableSyntax these will default to Int
+  2 ^ 3 =: 8  -- ordinary exponentiation, not the same as caret/wedge, int exponent only
 
   [0] + -[]     =: [0] + a []
   [0] + -[]     =: a 1
@@ -665,6 +690,7 @@ tests = do
   filterMset isEmpty          [2,0]  =:  [0]
   filterMset isZero           [2,0]  =:  [0]
   filterMset isInt    [2,0,[3],-1,0] =:  [2,0,-1,0]
+  filterMset isInt  [a 2,0,[3],-1,0] =:  [0,-1,0]
 
   let x = -[] + [-[1], 2, 3, [], -0]
   let result = [9,6,[a 1,a 1,a 1], 6,4,[a 1,a 1], [a 1,a 1,a 1],[a 1,a 1],[2]]

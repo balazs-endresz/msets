@@ -14,20 +14,10 @@ import Msets
 izero = fromIntegral (maxBound - maxBound :: Int)
 -- succ/pred izero to get other numbers
 
--- fromMset can be used safely with numeric literals but is a partial function for general msets
--- fromMset :: Num b => Mset (Mset a) -> b
-fromMset AntiZero      = error "Can't convert -0 to Int or Integer"
-fromMset x | isNeg x   = negate $ fromMset (neg x)
-           | isInt  x  = fromIntegral . length $ x
-           | otherwise = error "Only an mset of empty msets can be converted to Int or Integer"
-msetToInt     x = fromMset x :: Int
-msetToInteger x = fromMset x :: Integer
-
 fromList :: [Mset a] -> Mset (Mset a)
 fromList (x:xs) = Cons x (fromList xs)
 fromList _      = Zero
 fromListN _ = fromList
-
 
 fromInteger :: Integer -> Mset (Mset a)
 fromInteger n | n >= izero = fromList $ replicate (Prelude.fromInteger n) Zero
