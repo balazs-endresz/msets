@@ -12,26 +12,29 @@ import GHC.Stack (callStack,  prettyCallStack, HasCallStack)
 
 import Msets
 
+-- two general values are equal and converted to string the same way
 infixl 1 ==:
 (==:) :: (HasCallStack, Eq a, Show a) => a -> a -> IO ()
 x ==: y | x == y, show x == show y = putStr "."
-        | otherwise = msgStacktraced $ show x ++ " != \n          " ++ show y
+        | otherwise                = putStrLn msg
+  where
+    msg = "\nFAIL " ++ line ++ ": " ++ show x ++ " != \n" ++ leftPad ++ show y
+    line = takeWhile(/= ':').drop 4.dropWhile(/= '.').last.lines$ prettyCallStack callStack
+    leftPad = replicate (7 + length line) ' '
 
+-- two msets are equal and converted to string the same way
 infixl 1 =:
 (=:) :: HasCallStack => M -> M -> IO ()
 (=:) = (==:)
 
+-- an mset is converted to the given expression in alpha
 infixl 1 =@
 (=@) :: HasCallStack => M -> String -> IO ()
 x =@ y = showAlpha' x ==: y
 
+-- expect expression to raise runtime error
 assertRaises x = catch @ErrorCall (show x `seq` putStrLn "\nFAIL") (const $ putStr ".")
 
-msgStacktraced :: HasCallStack => String -> IO ()
-msgStacktraced msg = putStrLn $ "\nFAIL " ++ fromCallStack callStack ++ ": " ++ msg
-  where
-    fromCallStack = lineNumber . last . lines . prettyCallStack
-    lineNumber = takeWhile (/= ':') . drop 4 . dropWhile (/= '.')
 
 tests = flip (>>) (putStrLn "") $ do
   []   =: Zero

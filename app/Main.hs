@@ -7,8 +7,7 @@
 
 module Main where
 import Prelude qualified (fromInteger)
-import Prelude hiding (fromListN, fromInteger)
-import GHC.Exts (toList)  -- required for list syntax pattern matching
+import Prelude hiding (fromInteger)
 import Msets
 import Tests
 
