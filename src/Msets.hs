@@ -4,6 +4,8 @@
 {-# LANGUAGE LexicalNegation   #-}
 {-# LANGUAGE OverloadedLists   #-}
 {-# LANGUAGE TypeFamilies      #-}
+{-# LANGUAGE ViewPatterns      #-}
+
 -- {-# LANGUAGE PartialTypeSignatures #-}
 -- {-# LANGUAGE ScopedTypeVariables #-}
 
@@ -136,27 +138,32 @@ eliminate (Cons x xs)
 
 -- Ord
 instance Ord (Mset ()) where
-    compare AntiZero AntiZero = EQ
-    compare Zero     Zero     = EQ
-    compare AntiZero Zero     = LT
-    compare Zero     AntiZero = GT
+  compare AntiZero AntiZero = EQ
+  compare Zero     Zero     = EQ
+  compare AntiZero Zero     = LT
+  compare Zero     AntiZero = GT
 
 instance (Ord (Mset a)) => Ord (Mset (Mset a)) where
-    compare AntiZero AntiZero = EQ
-    compare Zero     Zero     = EQ
-    compare AntiZero Zero     = LT
-    compare Zero     AntiZero = GT
-    compare Zero        (Cons _ xs) = if isAnti xs then GT else LT
-    compare (Cons _ xs) Zero        = if isAnti xs then LT else GT
-    compare AntiZero    (Cons _ xs) = if isAnti xs then GT else LT
-    compare (Cons _ xs) AntiZero    = if isAnti xs then LT else GT
-    compare (Cons _ AntiZero) (Cons _ Zero)     = LT
-    compare (Cons _ Zero)     (Cons _ AntiZero) = GT
-    compare (Cons x xs)   (Cons y ys) = case compare x y of
-        EQ    -> compare xs ys
-        other -> if ax == ay then (if ax then compare y x else other) else (if ax then LT else GT)
-        where ax = isAnti xs
-              ay = isAnti ys
+  compare AntiZero AntiZero = EQ
+  compare Zero     Zero     = EQ
+  compare AntiZero Zero     = LT
+  compare Zero     AntiZero = GT
+  compare x@(isInt -> True) y@(isInt -> True)
+    | isNeg x, isNeg y = compare (length y) (length x)
+    | isNeg x          = LT
+    | isNeg y          = GT
+    | otherwise        = compare (length x) (length y)
+  compare Zero        (Cons _ xs) = if isAnti xs then GT else LT
+  compare (Cons _ xs) Zero        = if isAnti xs then LT else GT
+  compare AntiZero    (Cons _ xs) = if isAnti xs then GT else LT
+  compare (Cons _ xs) AntiZero    = if isAnti xs then LT else GT
+  compare (Cons _ AntiZero) (Cons _ Zero)     = LT
+  compare (Cons _ Zero)     (Cons _ AntiZero) = GT
+  compare (Cons x xs) (Cons y ys) = case compare x y of
+      EQ    -> compare xs ys
+      other -> if ax == ay then (if ax then compare y x else other) else (if ax then LT else GT)
+      where ax = isAnti xs
+            ay = isAnti ys
 
 
 -- StrictEq (exact equality without normalizing msets)
@@ -183,13 +190,14 @@ instance Eq (Mset ())  where
 
 -- Eq (Mset a)
 instance (Eq (Mset a)) => Eq (Mset (Mset a)) where
+  -- x == y = eq (eliminate $ fmap eliminate x) (eliminate $ fmap eliminate y) where -- TODO
   x == y = eq (eliminate x) (eliminate y) where
     eq Zero     Zero     = True
     eq AntiZero AntiZero = True
     eq (Cons x xs) ys = maybe False (eq xs . flip deleteMset ys . nth ys) (elemIndex x ys)
     eq _           _  = False
     -- re-define list functions for msets:
-    nth = (!!) . toList  -- when inlined above this gives a type error -- why?
+    nth = (!!) . toList
     elemIndex x xs = go xs 0 where
       go (Cons y ys) i = if x == y then Just i else go ys (i+1)
       go _           _ = Nothing  -- empty
@@ -199,15 +207,19 @@ instance (Eq (Mset a)) => Eq (Mset (Mset a)) where
 showBase Zero     = "0"
 showBase AntiZero = "-0"
 
+isIntOrAntiInt x =  isInt x || isInt (anti x)
+
 showMsetAsInt Zero     = showBase Zero
 showMsetAsInt AntiZero = showBase AntiZero
-showMsetAsInt x | isAnti x  = 'a' : ' ' : showMsetAsInt (anti x)
-                | otherwise = show $
-    length (filterMset isZero x) - length (filterMset isAntiZero x)
+showMsetAsInt x
+  | isAnti x = "a " ++ showMsetAsInt (anti x)
+  | isNeg  x = '-' : showMsetAsInt (neg x)
+  | isInt  x = show $ length (filterMset isZero x) - length (filterMset isAntiZero x)
 
-showMsetAsList f xs | isAnti xs = 'a' : ' ' : showMsetAsList f (anti xs)
-                    -- | isNeg xs  = '-' : showMsetAsList f (neg xs)  -- TODO
-                    | otherwise =  "[" ++  (intercalate "," . map f . toList) xs  ++ "]"
+showMsetAsList f xs
+  | isAnti xs = "a " ++ showMsetAsList f (anti xs)
+  | isNeg  xs = '-' : showMsetAsList f (neg xs)
+  | otherwise =  "[" ++  (intercalate "," . map f . toList) xs  ++ "]"
 
 -- Show
 instance Show (Mset ()) where
@@ -218,8 +230,8 @@ instance (IsMset (Mset a), Ord (Mset a), Show a, Show (Mset a)) => Show (Mset (M
   show Zero     = showBase Zero
   show AntiZero = showBase AntiZero
   show x        = go (prepare x) where
-    go x | isInt x   = showMsetAsInt x
-         | otherwise = showMsetAsList show x
+    go x | isIntOrAntiInt x = showMsetAsInt x
+         | otherwise        = showMsetAsList show x
     prepare = sortMset . eliminate
     -- prepare = id -- use this to show mset without "evaluating" it
 
@@ -229,22 +241,21 @@ class Show' a where
   showZeros :: a -> String
   showEmpty :: a -> String
 
--- Show' () is needed only for the constraints to work out and
--- to avoid code duplication, but it won't ever be called.
-instance Show' () where
-  showCons = undefined
-  showZeros = undefined
-  showEmpty = undefined
+instance Show' (Mset ()) where
+  showCons Zero = "Zero"
+  showCons AntiZero = "AntiZero"
+  showEmpty Zero = "[]"
+  showEmpty AntiZero = "-[]"
+  showZeros Zero = "0"
+  showZeros AntiZero = "-0"
 
-instance (Show' a) => Show' (Mset a) where
+instance (Show' (Mset a)) => Show' (Mset (Mset a)) where
   showCons Zero = "Zero"
   showCons AntiZero = "AntiZero"
   showCons (Cons x y) = "(Cons " ++ showCons x ++ " " ++ showCons y ++ ")"
-
   showEmpty Zero = "[]"
   showEmpty AntiZero = "-[]"
   showEmpty xs = showMsetAsList showEmpty xs
-
   showZeros Zero = "0"
   showZeros AntiZero = "-0"
   showZeros xs = showMsetAsList showZeros xs
@@ -267,33 +278,31 @@ instance {-# OVERLAPPING #-} Show String where
 newtype PlainString = PlainString String deriving Eq
 instance Show PlainString where show (PlainString s) = s
 
-pick list = map ((list !!) . read @Int . return) . show
-sub = pick "₀₁₂₃₄₅₆₇₈₉"
+pick list i | i >= 0 = pick' list i
+            | i <  0 = '⁻': pick' list (-i)
+  where
+    pick' list = map ((list !!) . read @Int . return) . show
+
+sup :: (Integral a, Show a) => a -> String
 sup = pick "⁰¹²³⁴⁵⁶⁷⁸⁹"
-alphaSub = ('α':) . sub
+sub :: (Integral a, Show a) => a -> String
+sub = pick "₀₁₂₃₄₅₆₇₈₉"
 alphaSup = ('α':) . sup
+alphaSubM = ('α':) . sub
+alphaSubP x | x == 0    = "α"
+            | otherwise = 'α': sub x
 
--- to be used without RebindableSyntax
-alphaI :: Int -> Alpha
-alphaI n = [[fromIntegral n]]
-
--- to be used with RebindableSyntax
-alphaM :: (forall a. Mset (Mset a)) -> Alpha
-alphaM n = [[n]]
-
--- assume RebindableSyntax by default
-alpha = alphaM
-α = alpha
-
--- TODO: add Integral mset instance to have a single alpha function
--- https://wiki.haskell.org/Power_function
+alpha n = [[fromIntegral n]] :: Alpha
 
 -- TODO: define more with template haskell
-α₀,α₁,α₂,α₃,α₀²,α₁²,α₂²,α₃² :: Alpha
-α₀  = [[0]]   --  α₀ = [1]
+α,α₀,α₁,α₂,α₃,α₀²,α₁²,α₂²,α₃² :: Alpha
+α   = α₀
+α₀  = [[0]]   --  α₀ = α = [1]
 α₁  = [[1]]   -- [α₀]
 α₂  = [[2]]   -- [α₀²]
 α₃  = [[3]]   -- [α₀³]
+α₄  = [[4]]
+α₅  = [[5]]
 α₀² = [[0,0]] -- [2]
 α₁² = [[1,1]]
 α₂² = [[2,2]]
@@ -315,57 +324,70 @@ instance ShowA Base where
   showAlpha = showBase
 instance ShowA IntM where
   showAlpha = showMsetAsInt
-instance (IsMset (Mset a), ShowA (Mset a), ShowA (Mset (Mset a)), Ord (Mset a), Ord a)
-         => ShowA (Mset (Mset (Mset a))) where
+instance ShowA Poly where
+  showAlpha = showAlpha . upcast
+instance (IsMset (Mset a), Ord (Mset a), ShowA (Mset (Mset (Mset a))))
+         => ShowA (Mset (Mset (Mset (Mset a)))) where
   -- TODO: rewrite this in a more sensible way
-  -- TODO: handle anti-msets correctly, e.g. minus alpha to the minus one
-  showAlpha x = plusMinToMin $ showAntiA go (prepare x)
+  showAlpha x = plusMinToMin $  go (prepare x)
     where
       prepare = sortMsetWith compareA . eliminate
-      go x  | isEmpty x      = showBase x
-            | isInt x        = showMsetAsInt x
-            | maxDepth x < 4 = showSum x  -- Poly and Multi (or generic variants)
-            | otherwise      = error "Only up to Multi is supported for alpha expressions"
-      showSum = joinMapPlus "+" showProd
-      showProd :: Mset (Mset a) -> String
+      go x = case maxDepth x of
+          0 -> showBase x       -- empty
+          1 -> showMsetAsInt x  -- int
+          2 -> showSum x        -- poly
+          3 -> showSum x        -- multi  -- TODO: not tested with more complex cases yet
+          _ -> error "Only up to Multi is supported for alpha expressions"
+
+      showSum x | isAnti x  = brackets $ showSum (anti x)
+                | otherwise = joinMapPlus "+" showProd x
+        where
+          brackets x | ('+' `elem` tail x) || ('-' `elem` tail x) = "a (" ++ x ++ ")"
+                     | otherwise = "a " ++ x
+
+      alphaSub = if maxDepth x == 2 then alphaSubP else alphaSubM -- α for poly and α₀ for multi
+
       showProd Zero     = "1"
       showProd AntiZero = "-1"
-      showProd x        = joinMapTimes opTimes (alphaSub . length) (sortMset $ eliminate x)
+      showProd x        = joinMapTimes "" alphaSubLength (sortMset $ eliminate x) where
+        alphaSubLength x | isNeg x   = alphaSub (-(length x)) ++ "⁻"
+                         | otherwise = alphaSub (length x)
+
       joinMapPlus  sep f = intercalate sep . map withMul . countOccurrences . fmap (showAntiA f)
       joinMapTimes sep f = intercalate sep . map withExp . countOccurrences . fmap f
-      withMul (e,c) | c > 1 && e ==  "1" = show c       -- positive constant
-                    | c > 1 && e == "-1" = '-' : show c   -- negative constant
-                    | c > 1              = show c ++ e  -- c times alpha sub n (^ c)
-                    | otherwise          = e              -- alpha sub n (^ c)
-      withExp (e,c) | c > 1     = e ++ (if opExp /= "" then opExp ++ show c else sup c)  -- alpha sub n ^ c
-                    | otherwise = e             -- alpha sub n
+
+      withMul (e,c)
+        | e ==  "0"            = show c           -- positive constant
+        | e == "-0"            = '-':show c       -- negative constant
+        | c > 1, ('-':e') <- e = '-':show c ++ e' -- -c times alpha sub n (^ c)
+        | c > 1                = show c ++ e      --  c times alpha sub n (^ c)
+        | otherwise            = e                -- alpha sub n (^ c)
+      withExp (e,c)
+        | c == 1, last e /= '⁻' = e -- alpha sub n ^ 1
+        | otherwise             = e ++ sup c  -- alpha sub n ^ c
       -- countOccurrences :: (Ord (Item l), IsList l) => l -> [(Item l, Int)]
       countOccurrences = map (\(x:xs) -> (x, 1 + length xs)) . group . toList
-      showAntiA f x | isAnti x  = '-':(removePlus . map flipSigns . f . anti) x
-                    | otherwise = f x
-        where
-          removePlus ('+':xs) = xs
-          removePlus xs       = xs
-          flipSigns '+' = '-'
-          flipSigns '-' = '+'
-          flipSigns c   = c
+      showAntiA f x | isEmpty x = showBase x
+                    | isAnti x  = '-':(removePlus . map flipSigns . f . anti) x
+                    | otherwise = f x where
+        removePlus ('+':xs) = xs
+        removePlus xs       = xs
+        flipSigns '+' = '-'
+        flipSigns '-' = '+'
+        flipSigns c   = c
       -- replace +- and -+ with just -
       plusMinToMin = r "" where
         r start ('-':'+':xs) = r start ('-':xs)
         r start ('+':'-':xs) = r start ('-':xs)
         r start (x:xs)       = r (start ++ [x]) xs
         r start []           = start
-      -- same as `compare` but moves constants to the front in alpha expressions
-      compareA _        Zero     = GT
-      compareA _        AntiZero = GT
-      compareA Zero     _        = LT
-      compareA AntiZero _        = LT
-      compareA x        y        = compare x y
-      opTimes = ""
-      opExp = ""
-      -- to render as valid code replace the last two above with:
-      -- opTimes = "*"
-      -- opExp = "^"  -- (^) :: (Num a, Integral b) => a -> b -> a
+      -- don't differentiate anti-msets when sorting because they mean only +/- here
+      compareA x y | isAnti x  = compareA (anti x) y
+                   | isAnti y  = compareA x (anti y)
+                   | otherwise = compare x y
+
+-- render alpha expression as valid haskell code
+-- showAlphaH = showAlpha  -- TODO: add *, ^, convert superscripts
 
 -- List
 -- The list instance is defined for use mainly by the OverloadedLists extension.
@@ -380,7 +402,7 @@ instance IsList (Mset a) where
   -- `fromList -[]` is not necessary because `-[]` is `negate []`,
   -- so `fromList` will be called before `negate`
   -- `toList AntiZero` is undefined for the same reason.
-  -- There's currently no way to make Mset the default instance for [], see:
+  -- There's currently no way to make Mset the default instance for [] without RebindableSyntax:
   -- https://downloads.haskell.org/~ghc/9.4.1-rc1/docs/users_guide/exts/overloaded_lists.html?highlight=defaulting#defaulting
 
 -- This helper function takes care of the anti-ness of either msets when
@@ -397,11 +419,13 @@ mkBinOp ifZero ifNonZero = go where
 instance Semigroup (Mset a) where
   (<>) = mkBinOp id $ \x xs ys -> Cons x (xs <> ys)
 
+-- Applicative
 instance Applicative Mset where
   pure x = Cons x Zero
   (<*>) = mkBinOp (const Zero) $ \fx fxs ys -> fmap fx ys <> (fxs <*> ys)
 
--- create a less polymorphic function to avoid ambigous type errors (see caret/wedge in IsMset)
+-- Create a less polymorphic variant that helps avoid ambigous type errors.
+-- Using the same visible type application inline doesn't seem to help in some cases.
 liftA2Mset = liftA2 @Mset
 
 
@@ -470,7 +494,7 @@ instance IsMset (Mset a) => Num (Mset (Mset a)) where
 -- * a concrete type `Base`
 -- * a generic type `Mset a`
 -- * a higher level type `IntM`, `Poly`, `Multi`, etc
-class (a ~ Mset (Elem a)) => IsMset a where
+class (a ~ Mset (Elem a), Eq a) => IsMset a where
   type Elem a
 
   plus  :: a -> a -> a
@@ -524,23 +548,23 @@ align x y | maxDepth x <= maxDepth y = unsafeCoerce x
 
 instance IsMset (Mset ()) where
   type Elem (Mset ()) = ()
-  plus = baseOp
-  times = baseOp
-  caret = baseOp
+  plus     = baseOp
+  times    = baseOp
+  caret    = baseOp
   minDepth = const 0
   maxDepth = const 0
-  minus = baseOp  -- TODO
+  minus    = baseOp  -- TODO
 
 instance (IsMset (Mset a)) => IsMset (Mset (Mset a)) where
   type Elem (Mset (Mset a)) = (Mset a)
 
   -- laws for anti-msets, plus, minus: https://www.youtube.com/watch?v=KQ1o_NYhQNA
-  plus = (<>)
+  plus x y = eliminate $ x <> y
 
   times AntiZero AntiZero = Zero
   times AntiZero x        = AntiZero  -- M*-0=-0 if M!=-0
   times x        AntiZero = AntiZero
-  times x        y        = liftA2Mset plus x y  -- here liftA2 works too
+  times x        y        = eliminate $ liftA2 plus x y
 
   -- laws for caret: https://youtu.be/TqKacqHS-fA?t=1789
   -- TODO: rename to wedge? because we have ^ for the ordinary exponentiation built-in
@@ -548,9 +572,7 @@ instance (IsMset (Mset a)) => IsMset (Mset (Mset a)) where
   caret AntiZero AntiZero = Zero
   caret AntiZero x        = AntiZero  -- M^-0=-0 if M!=-0 ???
   caret x        AntiZero = AntiZero
-  caret x        y        = liftA2Mset times x y
-  -- caret x        y        = liftA2 times x y   -- why won't these work???
-  -- caret x        y        = liftA2 @Mset times x y
+  caret x        y        = eliminate $ liftA2 times x y
 
   minDepth Zero     = 0
   minDepth AntiZero = 0
@@ -570,28 +592,20 @@ instance (IsMset (Mset a)) => IsMset (Mset (Mset a)) where
   minus AntiZero y        = neg y
   minus x        y        = plus x (neg y)
 
-assertEq :: (HasCallStack, Eq a, Show a) => a -> a -> IO ()
-assertEq x y | (x == y) && (show x == show y) = putStr "."
-             | otherwise = msgStacktraced $ show x ++ "  !=  " ++ show y
-
 infixl 1 ==:
 (==:) :: (HasCallStack, Eq a, Show a) => a -> a -> IO ()
-(==:) = assertEq
+x ==: y | x == y, show x == show y = putStr "."
+        | otherwise = msgStacktraced $ show x ++ " != \n          " ++ show y
 
 infixl 1 =:
 (=:) :: HasCallStack => M -> M -> IO ()
-(=:) = assertEq
+(=:) = (==:)
 
 infixl 1 =@
 (=@) :: HasCallStack => M -> String -> IO ()
 x =@ y = showAlpha' x ==: y
 
-assertRaises :: Show a => a -> IO ()
-assertRaises x = catch (show x `seq` putStrLn "\nFAIL") handler
-  where
-    handler :: ErrorCall -> IO ()
-    handler _ = putStr "."
-
+assertRaises x = catch @ErrorCall (show x `seq` putStrLn "\nFAIL") (const $ putStr ".")
 
 msgStacktraced :: HasCallStack => String -> IO ()
 msgStacktraced msg = putStrLn $ "\nFAIL " ++ fromCallStack callStack ++ ": " ++ msg
@@ -599,7 +613,7 @@ msgStacktraced msg = putStrLn $ "\nFAIL " ++ fromCallStack callStack ++ ": " ++ 
     fromCallStack = lineNumber . last . lines . prettyCallStack
     lineNumber = takeWhile (/= ':') . drop 4 . dropWhile (/= '.')
 
-tests = do
+tests = flip (>>) (putStrLn "") $ do
   []   =: Zero
   -[]  =: AntiZero
   0    =: Zero
@@ -719,25 +733,59 @@ tests = do
   ((Cons AntiZero Zero::M) === Cons Zero AntiZero) ==: False
   ((Cons Zero AntiZero::M) === Cons Zero AntiZero) ==: True
 
-  -- https://www.youtube.com/watch?v=CScJqApRPZg
-  α₂         =: [α₀*α₀]
-  α₀         =: [1]
-  α₀*α₀      =: [2]
-  α₀+α₀*α₀   =: [1,2]
-  α₁         =: [α₀]
-  α₁         =: [[1]]
-  2*α₁       =: [α₀, α₀]
-  2*α₁       =: [[1],[1]]
-  α₁*α₁      =: [α₀+α₀]
-  α₁*α₁      =: [[1,1]]
-  α₁*α₁*α₁   =: [[1,1,1]]
-  α₂         =: [[2]]
-  2*α₂       =: α₂+α₂
-  2*α₂       =: [[2],[2]]
-  α₃         =: [α₀*α₀*α₀]
-  α₃         =: [[3]]
-  α₁+2*α₂+α₃ =: [[1],[2],[2],[3]]
+  -- Ord
+  ( 1::M) >  0 ==: True
+  ( 2::M) >  1 ==: True
+  (-1::M) <  0 ==: True
+  (-1::M) > -2 ==: True
 
+  -- Show
+  show (-0::Base) ==: "-0"  -- won't work with RebindableSyntax because 0 is Mset (Mset a)
+  show (-0::M)    ==: "-0"
+  showMsetAsInt ([0,0,0,-0]::IntM) ==: "2" -- won't work with RebindableSyntax because 0 is already `Mset (Mset a)`
+  showMsetAsInt ([0,0,0,-0]::Poly) ==: "2"
+  -- The following works only with RebindableSyntax. Because by default :t +d -0 is Integer.
+  -- However, it might also work if LexicalNegation was disabled here:
+  -- > Under LexicalNegation, negated literals are desugared without negate.
+  -- > That is, -123 stands for fromInteger (-123) rather than negate (fromInteger 123).
+  -- TODO: LexicalNegation makes the tests a lot simpler but otherwise it could be dropped.
+  -- show (-0)    ==: "-0"
+
+  -- showAlpha for empty and int
+  0    =@ "0"
+  -0   =@ "-0"
+  1    =@ "1"
+  -1   =@ "-1"
+  [0]  =@ "1"
+  -[0] =@ "-1"
+  a -[0]    =@ "a -1"
+  a [-0,-0] =@ "a -2"
+  a [0,0]   =@ "a 2"
+  -- showAlpha for poly
+  [1]   =@ "α"
+  [1,1] =@ "2α"
+  [2]   =: α*α
+  [2]   =: α^2
+  [a 2] =@ "-α²"
+  a [2] =@ "a α²" -- ?
+  [a 1]         =@ "-α"
+  [0,a 1]       =@ "1-α"
+  [a 2,a 2,a 2] =@ "-3α²"
+  -[2,2,2]      =@ "-3α²"
+  [a 1,a 2]     =@ "-α-α²"
+  [a 1,a 1]     =@ "-2α"
+  [a 1,2]       =@ "-α+α²"
+  [a 1,a 1,2]   =@ "-2α+α²"
+  [a 1,a 1,2,2] =@ "-2α+2α²"
+  [a 1,a 1,a 2,a 2] =@ "-2α-2α²"
+  -- showAlpha for poly (negative exponent)
+  [-1] =@ "α⁻¹"
+  [-2] =@ "α⁻²"
+  [a -1] =@ "-α⁻¹"
+  [a -2] =@ "-α⁻²"
+  a [a -2] =@ "a -α⁻²"
+  a [a -2, 0] =@ "a (-α⁻²+1)"
+  -- showAlpha for multi
   [[1],[2],[2],[3]] =@ "α₁+2α₂+α₃"
   [0,[7,2],0] =@ "2+α₂α₇"
   []       =@ "0"
@@ -747,15 +795,93 @@ tests = do
   -[0]     =@ "-1"
   [0,0]    =@ "2"
   -[0,0]   =@ "-2"
-  [0,-0,1] =@ "α₀"
+  [0,-0,1] =@ "α"
+  -- TODO: showAlpha for multi with more anti/negative elements
 
-  show (-0::Base) ==: "-0"  -- won't work with RebindableSyntax because 0 is Mset (Mset a)
-  show (-0::M)    ==: "-0"
-  -- The following works only with RebindableSyntax. Because by default :t +d -0 is Integer.
-  -- However, it might also work if LexicalNegation was disabled here:
-  -- > Under LexicalNegation, negated literals are desugared without negate.
-  -- > That is, -123 stands for fromInteger (-123) rather than negate (fromInteger 123).
-  -- TODO: LexicalNegation makes the tests a lot simpler but otherwise it could be dropped.
-  -- show (-0)    ==: "-0"
+  test_MF228
+  test_MF232
 
-  putStrLn ""
+-- MF228 The big step from polynumbers to multinumbers!!
+-- https://www.youtube.com/watch?v=CScJqApRPZg
+test_MF228 = do
+  -- MF228/1
+  0  =: []
+  1  =: [0]
+  2  =: [0,0]
+  3  =: [0,0,0]
+  α  =: [1]
+  α₀ =: [1]
+  -- let m = [[3,3,5],[1],[1],[27,44]]
+  -- MF228/4
+  2*α₀  =: α₀+α₀
+  2*α₀  =: [1,1]
+  3*α₀  =: [1,1,1]
+  α₀^2  =: α₀*α₀
+  α₀^2  =: [2]
+  α₀^3  =: [3]
+  let p =  [0,0,0,1,3,4,4]
+  p     =@ "3+α+α³+2α⁴"  -- for poly we just write α instead of α₀
+  α₁    =: [α₀]
+  α₁    =: [[1]]
+  α₁    =: [[[0]]]
+  α₁    =: [[[[]]]]
+  -- MF228/5
+  2*α₁ =: [α₀, α₀]
+  2*α₁ =: [[1],[1]]
+  3*α₁ =: [[1],[1],[1]]
+  α₁^2 =: α₁*α₁
+  α₁^2 =: [α₀+α₀]
+  α₁^2 =: [[1,1]]
+  α₁^3 =: [[1,1,1]]
+  3+α₁+4*α₁^2+α₁^5 =: [0,0,0,[1],[1,1],[1,1],[1,1],[1,1],[1,1,1,1,1]]
+  3+α₀+4*α₀^2+α₀^5 =: [0,0,0,1,2,2,2,2,5]
+  -- MF228/6
+  α₂    =: [[2]]
+  α₃    =: [[3]]
+  2*α₂  =: [[2],[2]]
+  2*α₃  =: [[3],[3]]
+  3*α₂  =: [[2],[2],[2]]
+  3*α₃  =: [[3],[3],[3]]
+  α₁+3*α₂+α₃ =: [[1],[2],[2],[2],[3]]
+  α₁^2  =: [[1,1]]
+  α₁^3  =: [[1,1,1]]
+  α₂^2  =: [[2,2]]
+  α₂^3  =: [[2,2,2]]
+  α₁*α₂ =: [[1,2]]
+  -- MF228/7
+  α₀*α₁^2+α₂^3*α₄+2*α₅^3 =: [[0,1,1],[2,2,2,4],[5,5,5],[5,5,5]]
+  [[1,5],[0,3,3]] * [2,[1,1,1]] =@ "α₀³α₃²+α₀α₁³α₃²+α₀²α₁α₅+α₁⁴α₅"  -- ordered slightly differently
+
+-- MF232 More arithmetic with negative msets
+-- https://www.youtube.com/watch?v=5Rr-ZT6A7cw
+test_MF232 = do
+  -- MF232/5
+  let p =  [0,0,2,2,2,5]
+  p     =@ "2+3α²+α⁵"
+  -p    =: [-0,-0,a 2,a 2,a 2,a 5]
+  -p    =@ "-2-3α²-α⁵"
+  let q =  [0,a 1,a 2,3]
+  q     =@ "1-α-α²+α³"  -- last term incorrect on the whiteboard in the video
+  p + q =: [0,0,0,a 1,2,2,3,5]
+  p + q =@ "3-α+2α²+α³+α⁵"
+  -- MF232/6
+  let r =  (2+α₀) * (3-α₀*α₀)
+  r     =: [0,0,0,a 2,0,0,0,a 2,1,1,1,a 3]
+  r     =@ "6+3α-2α²-α³"
+  let s =  (1-α₀)^3
+  s     =: [0,a 1,a 1,a 1,2,2,2,a 3]
+  s     =@ "1-3α+3α²-α³"
+  -- MF232/7
+  let t =  [-2,-1,-1,-1,0,3,3]
+  t =: t
+  t     =@ "α⁻²+3α⁻¹+1+2α³" --
+  -- MF232/8
+  let u =  [-1,-1,2] + [-3,1,2,4]
+  u     =: [-1,-1,-3,1,2,2,4]
+  u     =@ "α⁻³+2α⁻¹+α+2α²+α⁴"
+  let v =  [-3,-1,a 2] + [a -1,0,2,3]
+  v     =: [-3,0,3]
+  v     =@ "α⁻³+1+α³"
+  let w =  [-2,1] * [-1,-1,a 3]
+  w     =: [-3,-3,a 1,0,0, a 4]
+  w     =@ "2α⁻³+2-α-α⁴"

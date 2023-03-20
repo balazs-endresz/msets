@@ -6,11 +6,6 @@ Haskell implementation of msets, based on the following videos:
 * [Negatives numbers from anti msets | Math Foundations 231 | N J Wildberger](https://www.youtube.com/watch?v=KQ1o_NYhQNA)
 * [More arithmetic with negative msets | Math Foundations 232 | N J Wildberger](https://www.youtube.com/watch?v=5Rr-ZT6A7cw)
 
-TODO:
-
-* [ ] Fix `showAlpha` for polynumbers and handle an anti-mset of anti-msets correctly.
-* [ ] QuickCheck tests
-
 Click the button below to start a new development environment:
 
 [![Open in Gitpod](https://gitpod.io/button/open-in-gitpod.svg)](https://gitpod.io/#https://github.com/balazs-endresz/msets)
@@ -32,8 +27,8 @@ ghci> [1] - 0   -- negation currently works more like with ordinary integers,
 [1]             -- but this might change later, see the `neg` function in `src/Msets.hs`
 ghci> [1,[2]] * [[3]]
 [[0,3],[2,3]]
-ghci> showAlpha [0,1,[2,3,3]] -- render msets as expressions using alpha
-1+α₀+α₂α₃²                    -- anti/negative is not rendered correctly yet as alpha
+ghci> showAlpha' [-1,-1,-3,1,2,2,4]  -- showAlpha' is a shortcut for `showAlpha ([...]::M)`
+α⁻³+2α⁻¹+α+2α²+α⁴
 ghci> [1] + -0 == a [1]       -- type error, try adding a type annotation:
 ghci> [1] + -0 == (a [1]::M)  -- the type M is applied to one of the sub-expressions
 True
