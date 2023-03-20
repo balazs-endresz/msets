@@ -10,6 +10,7 @@ import Prelude qualified (fromInteger)
 import Prelude hiding (fromListN, fromInteger)
 import GHC.Exts (toList)  -- required for list syntax pattern matching
 import Msets
+import Tests
 
 izero = fromIntegral (maxBound - maxBound :: Int)
 -- succ/pred izero to get other numbers
