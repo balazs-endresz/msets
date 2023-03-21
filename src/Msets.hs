@@ -493,19 +493,15 @@ instance IsMset (Mset a) => Num (Mset (Mset a)) where
 -- * a higher level type `IntM`, `Poly`, `Multi`, etc
 class (a ~ Mset (Elem a), Eq a) => IsMset a where
   type Elem a
-
   plus  :: a -> a -> a
   times :: a -> a -> a
   caret :: a -> a -> a
   (∧)   :: a -> a -> a
   (∧) = caret
   infixr 8 ∧
-
-  minDepth :: (Num b, Ord b) => a -> b
-  maxDepth :: (Num b, Ord b) => a -> b
-
-  minus :: a -> a -> a
-
+  minDepth  :: (Num b, Ord b) => a -> b
+  maxDepth  :: (Num b, Ord b) => a -> b
+  minus     :: a -> a -> a
 
 -- Counting functions: https://youtu.be/TqKacqHS-fA?t=645
 -- Unlike the ones in the video these return an anti-mset when applied to an anti-mset
