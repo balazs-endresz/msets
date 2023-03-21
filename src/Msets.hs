@@ -450,6 +450,16 @@ instance (IsMset a, Ord a) => Integral (Mset a) where
 
 assertInt f x = if not (isInt x) then error "non-integer shaped mset" else f x
 
+-- TODO: currently defined only for Poly and above
+instance (IsMset a, Ord a) => Fractional (Mset (Mset (Mset a))) where
+  -- recip = fmap . fmap anti
+  recip x | maxDepth x > 1 = fmap neg x
+
+  -- convert from a Rational value (which is `Ratio Integer`) to mset
+  -- fromRational (x :% y) =  fromInteger $ round (fromInteger x / fromInteger y)
+  -- This doesn't make sense for Poly but we could define it for int msets that are divisible.
+  fromRational = undefined
+
 
 -- Num (Base)
 instance Num (Mset ()) where

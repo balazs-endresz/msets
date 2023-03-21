@@ -220,6 +220,28 @@ tests = flip (>>) (putStrLn "") $ do
   -[0,0]   =@ "-2"
   [0,-0,1] =@ "α"
   -- TODO: showAlpha for multi with more anti/negative elements
+  [[0]]    =@ "α"  -- we can't tell if this should be α₀ or α, so we use α
+  [[1]]    =@ "α₁"
+  [[2]]    =@ "α₂"
+  -- [[a 1]]  =@ "α₁⁻¹"  -- TODO: fix formatting for Multi
+  -- [[a 2]]  =@ "α₂⁻¹"
+  -- [[  -1]]  =@ "-α₁"
+  -- [[a -1]]  =@ "-α₁⁻¹"
+
+  -- Fractional
+  recip α =: [-1]
+  recip α =@ "α⁻¹"
+  α ^   2 =: [2]  -- ^  is for positive integer exponents only
+  α ^^ -1 =: [-1] -- ^^ works with negative integer exponenents too
+  α  * (1 / α)  =: 1
+  α  * recip α  =: 1
+  α₁ * recip α₁ =: 1
+  α₂ * recip α₂ =: 1
+  -- (2*α)  * recip (2*α)  =: 1  -- TODO: recip isn't applied to 2 because we don't have fractional integers yet
+  (α₂^3) * recip (α₂^3) =: 1
+  recip α₁ =: [-[1]]
+  recip α₁ =: [[a 1]]
+  1 / α₁   =: [[a 1]]
 
   test_MF228
   test_MF232

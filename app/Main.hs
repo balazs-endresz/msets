@@ -6,8 +6,8 @@
 -- have an mset type by default. This way type annotations are usually not necessary.
 
 module Main where
-import Prelude qualified (fromInteger)
-import Prelude hiding (fromInteger)
+import Prelude qualified (fromInteger, (^), (^^))
+import Prelude hiding (fromInteger, (^), (^^))
 import Msets
 import Tests
 
@@ -22,6 +22,9 @@ fromListN _ = fromList
 fromInteger :: Integer -> Mset (Mset a)
 fromInteger n | n >= izero = fromList $ replicate (Prelude.fromInteger n) Zero
               | n <  izero = neg $ fromInteger -n
+
+x ^^ y = (Prelude.^^) x (toInteger @IntM y)
+x ^  y = (Prelude.^ ) x (toInteger @IntM y)
 
 x0 = 0
 x1 = [1]
