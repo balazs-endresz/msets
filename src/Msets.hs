@@ -8,6 +8,7 @@
 
 -- {-# LANGUAGE PartialTypeSignatures #-}
 -- {-# LANGUAGE ScopedTypeVariables #-}
+-- {-# LANGUAGE NoMonomorphismRestriction #-}
 
 {-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
 
@@ -33,24 +34,15 @@ type Multi = Mset Poly
 -- ::M can be applied to a mix of all lower level polymorphic values too,
 -- without having to be specific about various types in ghci.
 -- Unlike `Mset a`, it is a concrete type, which helps avoid ambigous type errors.
--- one = Cons Zero Zero = 0:[] = [0] = 1
--- minusOne = Cons AntiZero Zero = -0:[] = [-0] = -[0] = Cons Zero AntiZero = -1
 type M = Mset (Mset (Mset (Mset (Mset (Mset (Mset Multi))))))
-
--- G is similar to Alpha, but allows higher level types too (up to a point).
--- Use G to declare a general mset. This can be made a concrete type later with e.g. ::M
--- The type annotation can be sometimes removed, depending on the context it's used in.
--- This is needed because OverloadedLists doesn't support defaulting:
--- https://ghc.gitlab.haskell.org/ghc/doc/users_guide/exts/overloaded_lists.html#defaulting
--- https://gitlab.haskell.org/ghc/ghc/-/blob/master/testsuite/tests/plugins/defaulting-plugin/DefaultLifted.hs
--- Also, this is not needed for declarations in ghci! Only when trying to show/print it.
--- x :: G
--- x = [1,-[2]]
-type G = forall a. (IsMset a) => Mset (Mset (Mset (Mset (Mset (Mset (Mset (Mset (Mset a))))))))
 
 -- Polymorphic type that can be used up to declare generic alpha values (without using them).
 -- These can go up to Multi but can be also cast to the higher level concrete types afterwards.
 type Alpha = forall a. (IsMset a) => Mset (Mset (Mset a))
+
+-- The type G works like Alpha but can be applied to more deeply nested msets too.
+type G = forall a. (IsMset a) => Mset (Mset (Mset (Mset (Mset (Mset (Mset (Mset (Mset a))))))))
+
 
 fix x = x :: M
 
@@ -204,8 +196,6 @@ instance (Eq (Mset a)) => Eq (Mset (Mset a)) where
 showBase Zero     = "0"
 showBase AntiZero = "-0"
 
-isIntOrAntiInt x =  isInt x || isInt (anti x)
-
 showMsetAsInt Zero     = showBase Zero
 showMsetAsInt AntiZero = showBase AntiZero
 showMsetAsInt x
@@ -224,13 +214,9 @@ instance Show (Mset ()) where
 
 -- Show
 instance (IsMset (Mset a), Ord (Mset a), Show a, Show (Mset a)) => Show (Mset (Mset a)) where
-  show Zero     = showBase Zero
-  show AntiZero = showBase AntiZero
-  show x        = go (prepare x) where
-    go x | isIntOrAntiInt x = showMsetAsInt x
-         | otherwise        = showMsetAsList show x
-    prepare = sortMset . eliminate
-    -- prepare = id -- use this to show mset without "evaluating" it
+  show = go . sortMset . eliminate where
+    go x | all isEmpty x = showMsetAsInt x  -- this matches empty msets too
+         | otherwise     = showMsetAsList show x
 
 -- Show'
 class Show' a where
@@ -291,7 +277,9 @@ alphaSubP x | x == 0    = "α"
 
 alpha n = [[fromIntegral n]] :: Alpha
 
--- TODO: define more with template haskell
+-- Type signature is required with MonomorphismRestriction only,
+-- but if we declare it upfront that makes things easier later.
+-- TODO: define more α values with template haskell
 α,α₀,α₁,α₂,α₃,α₄,α₅,α₀²,α₁²,α₂²,α₃² :: Alpha
 α   = α₀
 α₀  = [[0]]   --  α₀ = α = [1]
@@ -425,8 +413,6 @@ instance Applicative Mset where
 -- Using the same visible type application inline doesn't seem to help in some cases.
 liftA2Mset = liftA2 @Mset
 
-
--- TODO: check with and without RebindableSyntax
 -- TODO: try to make these work for polymorphic msets too:
 --       • Couldn't match type ‘a1’ with ‘Elem (Mset a1)’
 --       • Could not deduce (Elem (Mset a0) ~ a0)
@@ -526,14 +512,10 @@ countP = fmap countN
 countM :: Mset (Mset (Mset (Mset a))) -> Mset (Mset (Mset (Mset b)))
 countM = fmap countP
 -- Same functions but with fixed return types:
-countZ' :: Mset a -> Base
-countZ' = countZ
-countN' :: Mset (Mset a) -> IntM
-countN' = countN
-countP' :: Mset (Mset (Mset a)) -> Poly
-countP' = countP
-countM' :: Mset (Mset (Mset (Mset a))) -> Multi
-countM' = countM
+countZ' = countZ @_ @()
+countN' = countN @_ @()
+countP' = countP @_ @()
+countM' = countM @_ @()
 
 -- We have recursive `Mset a` instances for all higher levels, so this might just be safe.
 -- e.g. `upcast (2::IntM) + ([3]::Poly)`
@@ -542,8 +524,9 @@ upcast = unsafeCoerce
 
 -- x = 2 :: IntM
 -- y = [3] :: Poly
--- align x y
--- x + (align y x)  -- runtime error
+-- y + x          -- type error
+-- y + align x y  -- ok
+-- x + align y x  -- runtime error
 align :: (IsMset a, IsMset b) => a -> b -> b
 align x y | maxDepth x <= maxDepth y = unsafeCoerce x
           | otherwise = error "Apply align to the other value instead"
