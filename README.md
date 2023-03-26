@@ -15,7 +15,7 @@ Click the button below to start a new development environment:
 Then type `ghci` in the terminal in the bottom panel. Within `ghci` one can perform operations with msest:
 
 ```hs
-ghci> -0        -- anti-zero is represented as -0, or -[]
+ghci> -0        -- anti-zero is represented as -0, or -[] (NB this syntax might change soon with rational numbers!)
 -0
 ghci> [1] + -0  -- adding -0 creates an anti mset
 a [1]
