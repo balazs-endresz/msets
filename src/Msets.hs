@@ -5,6 +5,8 @@
 {-# LANGUAGE OverloadedLists   #-}
 {-# LANGUAGE TypeFamilies      #-}
 {-# LANGUAGE ViewPatterns      #-}
+{-# LANGUAGE PatternSynonyms   #-}
+
 
 -- {-# LANGUAGE PartialTypeSignatures #-}
 -- {-# LANGUAGE ScopedTypeVariables #-}
@@ -17,19 +19,45 @@ module Msets where
 import Control.Applicative
 import Data.Char (isDigit)
 import Data.List (group, intercalate)
+import Data.Ratio
 import Data.Semigroup
 import GHC.Exts (IsList(..))
 import Unsafe.Coerce (unsafeCoerce)
 
 -- Data
-data Mset a = AntiZero | Zero | Cons a (Mset a)
+type Multiplicity = Either () RationalM
+data Mset a = AntiZero
+            | Zero
+            | Cons' Multiplicity a (Mset a)
   deriving (Foldable, Functor, Traversable)
+
+-- Cons can be used when there's no multiplicity (i.e. it's one)
+pattern Cons :: a -> Mset a -> Mset a
+pattern Cons a m = Cons' (Left ()) a m
+
+-- ConsR can be used for rational multiplicities.
+-- Note that the multiplicity is defined in the context of
+-- "prepending" an element to the mset.
+-- This makes some instances simpler, and doesn't break maxDepth, isInt, etc.
+pattern ConsR :: RationalM -> a -> Mset a -> Mset a
+pattern ConsR r a m = Cons' (Right r) a m
+
+-- TODO: ConsN would work with :% but that can't be imported
+-- pattern ConsN :: IntM -> a -> Mset a -> Mset a
+-- pattern ConsN n a m = Cons' (Right (n % 1)) a m
+
 
 -- Type synonyms
 type Base = Mset ()  -- Zero, AntiZero
 type IntM = Mset Base  -- 1, 2, -1, etc (the type `Int`, `Integer` already exists)
 type Poly = Mset IntM
 type Multi = Mset Poly
+
+-- Analogous to: type Rational = Ratio Integer
+-- Value can be constructed like 6 % 4, which are normalised.
+-- The actual data constructor for Ratio is :% but that can't be used directly.
+-- TODO: This type allows for anti-IntM values too, which don't make sense.
+type RationalM = Ratio IntM
 
 -- ::M can be applied to a mix of all lower level polymorphic values too,
 -- without having to be specific about various types in ghci.
@@ -384,6 +412,9 @@ instance IsList (Mset a) where
   fromList (x:xs)    = Cons x (fromList xs)
   toList Zero        = []
   toList (Cons x xs) = x : toList xs
+  -- undefined for fractional multiplicities:
+  toList (ConsR r x xs) | denominator r == 1 = replicate (floor r) x ++ toList xs
+
   -- `fromList -[]` is not necessary because `-[]` is `negate []`,
   -- so `fromList` will be called before `negate`
   -- `toList AntiZero` is undefined for the same reason.
@@ -468,14 +499,18 @@ instance IsMset (Mset a) => Num (Mset (Mset a)) where
                 | n >  0 = stimes  n (Cons Zero     Zero)
                 | n <  0 = stimes -n (Cons AntiZero Zero)
 
-  -- TODO: These might not make sense for a general mset.
-  -- Maybe specifiy them for IntM/isInt only? + eliminate first?
-  abs = undefined
-  signum = undefined
-  -- abs x = if isNeg x then neg x else x
-  -- signum Zero     = 0
-  -- signum AntiZero = 0
-  -- signum x        = if isNeg x then -1 else 1
+  -- TODO: eliminate
+  abs Zero = 0
+  abs n
+    | not $ isInt n = undefined
+    | isNeg n       = neg n
+    | otherwise     = n
+
+  signum Zero = 0
+  signum n
+    | not $ isInt n = undefined
+    | isNeg n       = -1
+    | otherwise     = 1
 
 -- IsMset
 -- This class allows defining operations between:
