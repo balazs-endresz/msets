@@ -6,13 +6,14 @@
 {-# LANGUAGE TypeFamilies      #-}
 {-# LANGUAGE ViewPatterns      #-}
 {-# LANGUAGE PatternSynonyms   #-}
-
+{-# LANGUAGE GADTs             #-}
 
 -- {-# LANGUAGE PartialTypeSignatures #-}
--- {-# LANGUAGE ScopedTypeVariables #-}
 -- {-# LANGUAGE NoMonomorphismRestriction #-}
+-- {-# LANGUAGE AllowAmbiguousTypes   #-}
 
 {-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
+{-# OPTIONS_GHC -Wno-missing-pattern-synonym-signatures #-}
 
 module Msets where
 
@@ -25,26 +26,76 @@ import GHC.Exts (IsList(..))
 import Unsafe.Coerce (unsafeCoerce)
 
 -- Data
-type Multiplicity = Either () RationalM
 data Mset a = AntiZero
             | Zero
-            | Cons' Multiplicity a (Mset a)
+            | ConsMul Multiplicity a (Mset a)
   deriving (Foldable, Functor, Traversable)
 
--- Cons can be used when there's no multiplicity (i.e. it's one)
+
+data Multiplicity where
+  One :: Multiplicity
+  Mul :: (Real m, Show m, Eq m, Ord m) => m -> Multiplicity  -- `Num m` doesn't work here
+
+instance Show Multiplicity where
+  show One = "1"
+  show (Mul r)
+   | denominator (toRational r) == 1 = show . numerator . toRational $ r
+   | otherwise = show r
+-- TODO:
+-- ghci> Mul (2%3)
+-- 2 % 3
+-- ghci> 2/3
+-- • No instance for (Fractional (Mset (Mset ())))
+
+instance Eq Multiplicity where
+  One   == One   = True
+  One   == Mul r = 1 == r
+  Mul r == One   = r == 1
+  Mul r == Mul s = toRational r == toRational s
+
+instance Ord Multiplicity where
+  compare One     One     = EQ
+  compare One     (Mul r) = compare 1 r
+  compare (Mul r) One     = compare r 1
+  compare (Mul r) (Mul s) = compare (toRational r) (toRational s)
+
+instance Num Multiplicity where
+  One   + One   = Mul 2
+  One   + Mul r = Mul (1+r)
+  Mul r + One   = Mul (r+1)
+  Mul r + Mul s = Mul (toRational r + toRational s)
+
+  One   * One   = Mul 1
+  One   * Mul r = Mul r
+  Mul r * One   = Mul r
+  Mul r * Mul s = Mul (toRational r * toRational s)
+
+  negate One     = Mul -1
+  negate (Mul r) = Mul -r
+
+  fromInteger = Mul . fromInteger
+
+  abs One     = 1
+  abs (Mul r) = Mul (abs r)
+
+  signum One     = 1
+  signum (Mul r) = Mul (signum r)
+
+-- Cons can be used when the multiplicity is one (needed to construct IntM)
 pattern Cons :: a -> Mset a -> Mset a
-pattern Cons a m = Cons' (Left ()) a m
+pattern Cons a mset = ConsMul One a mset
 
--- ConsR can be used for rational multiplicities.
--- Note that the multiplicity is defined in the context of
--- "prepending" an element to the mset.
--- This makes some instances simpler, and doesn't break maxDepth, isInt, etc.
-pattern ConsR :: RationalM -> a -> Mset a -> Mset a
-pattern ConsR r a m = Cons' (Right r) a m
+-- pattern Succ :: Mset (Mset a) -> Mset (Mset a)
+pattern Succ :: IntM -> IntM
+pattern Succ mset = Cons Zero mset
 
--- TODO: ConsN would work with :% but that can't be imported
--- pattern ConsN :: IntM -> a -> Mset a -> Mset a
--- pattern ConsN n a m = Cons' (Right (n % 1)) a m
+-- pattern Pred :: Mset (Mset a) -> Mset (Mset a)
+pattern Pred :: IntM -> IntM
+pattern Pred mset = Cons AntiZero mset
+
+-- ConsR allows working directly with the Num value, without the Multiplicity its wrapped in.
+-- pattern ConsR :: (Real m, Show m, Eq m, Ord m) => m -> a -> Mset a -> Mset a
+pattern ConsR mul a mset = ConsMul (Mul mul) a mset
 
 
 -- Type synonyms
@@ -96,20 +147,22 @@ baseOp AntiZero Zero     = AntiZero
 -- this doesn't check isAnti for any of the containing elements, only at the top level
 isAnti Zero        = False
 isAnti AntiZero    = True
-isAnti (Cons _ xs) = isAnti xs
+isAnti (ConsMul _ _ xs) = isAnti xs
 
 -- takes the "anti" of the top level only; containing elements are left unchanged
 anti Zero        = AntiZero
 anti AntiZero    = Zero
-anti (Cons x xs) = Cons x (anti xs)
+-- anti (Cons x xs) = Cons x (anti xs)
+anti (ConsMul r x xs) = ConsMul r x (anti xs)
 
 -- shortcut for anti
 a = anti
 
 -- takes the "anti" of the immediate children, or the anti of an empty mset
-neg Zero = AntiZero
+-- TODO: this shouldn't be used for Num!
+neg Zero     = AntiZero
 neg AntiZero = Zero
-neg x = fmap anti x
+neg x        = fmap anti x
 
 -- this is defined for empty msets too (maybe shouldn't be but makes things easier)
 isNeg Zero     = False
@@ -140,18 +193,24 @@ sortMset = sortMsetWith compare
 -- returns a new mset with the first argument removed from it
 deleteMset _ Zero        = Zero
 deleteMset _ AntiZero    = AntiZero
-deleteMset x (Cons y ys)
-             | x == y    = ys
-             | otherwise = Cons y (deleteMset x ys)
+-- deleteMset x (Cons y ys)
+--          | x == y    = ys
+--          | otherwise = Cons y (deleteMset x ys)
+deleteMset x (ConsMul r y ys)
+         | r <  0         = undefined -- expect it to be normalised already
+         | r == 0         = ys
+         | r == 1, x == y = ys
+         | x == y         = ConsMul (r-1) y (deleteMset x ys)
+         | otherwise      = ConsMul  r    y (deleteMset x ys)
 
 -- eliminate mset and anti-mset pairs (top level only)
 -- TODO: add recursive variant
+-- TODO: handle multiplicities properly:  if r > 0
 eliminate Zero       = Zero
 eliminate AntiZero   = AntiZero
-eliminate (Cons x xs)
+eliminate (ConsMul r x xs)
   | anti x `elem` xs = eliminate (deleteMset (anti x) xs)
-  | otherwise        = Cons x (eliminate xs)
-
+  | otherwise        = ConsMul r x (eliminate xs)
 
 -- Ord
 instance Ord (Mset ()) where
@@ -264,6 +323,7 @@ instance (Show' (Mset a)) => Show' (Mset (Mset a)) where
   showCons Zero = "Zero"
   showCons AntiZero = "AntiZero"
   showCons (Cons x y) = "(Cons " ++ showCons x ++ " " ++ showCons y ++ ")"
+  showCons (ConsR r x y) = "(ConsR (" ++ show r ++ ") " ++ showCons x ++ " " ++ showCons y ++ ")"
   showEmpty Zero = "[]"
   showEmpty AntiZero = "-[]"
   showEmpty xs = showMsetAsList showEmpty xs
@@ -370,11 +430,11 @@ instance (IsMset (Mset a), Ord (Mset a), ShowA (Mset (Mset (Mset a))))
       joinMapTimes sep f = intercalate sep . map withExp . countOccurrences . fmap f
 
       withMul (e,c)
-        | e ==  "0"            = show c           -- positive constant
-        | e == "-0"            = '-':show c       -- negative constant
-        | c > 1, ('-':e') <- e = '-':show c ++ e' -- -c times alpha sub n (^ c)
-        | c > 1                = show c ++ e      --  c times alpha sub n (^ c)
-        | otherwise            = e                -- alpha sub n (^ c)
+        | e == showBase Zero     = show c           -- positive constant
+        | e == showBase AntiZero = '-':show c       -- negative constant
+        | c > 1, ('-':e') <- e   = '-':show c ++ e' -- -c times alpha sub n (^ c)
+        | c > 1                  = show c ++ e      --  c times alpha sub n (^ c)
+        | otherwise              = e                -- alpha sub n (^ c)
       withExp (e,c)
         | c == 1, last e /= '⁻' = e -- alpha sub n ^ 1
         | otherwise             = e ++ sup c  -- alpha sub n ^ c
@@ -413,7 +473,9 @@ instance IsList (Mset a) where
   toList Zero        = []
   toList (Cons x xs) = x : toList xs
   -- undefined for fractional multiplicities:
-  toList (ConsR r x xs) | denominator r == 1 = replicate (floor r) x ++ toList xs
+  toList (ConsR r x xs) | denominator (toRational r) == 1 = replicate (toInt r) x ++ toList xs
+    where
+      toInt = fromInteger . numerator . toRational
 
   -- `fromList -[]` is not necessary because `-[]` is `negate []`,
   -- so `fromList` will be called before `negate`
@@ -428,17 +490,18 @@ mkBinOp ifZero ifNonZero = go where
          | isAnti x, isAnti y = anti x `go` anti y
          | isAnti x           = anti (anti x `go` y)
          | isAnti y           = anti (x `go` anti y)
-         | (Cons x' xs) <- x  = ifNonZero x' xs y
+         | (ConsMul r x' xs) <- x = ifNonZero r x' xs y
 
 -- Semigroup
 -- Concatenate msets (without eliminating anti and non-anti pairs).
 instance Semigroup (Mset a) where
-  (<>) = mkBinOp id $ \x xs ys -> Cons x (xs <> ys)
+  (<>) = mkBinOp id $ \r x xs ys -> ConsMul r x (xs <> ys)
 
 -- Applicative
 instance Applicative Mset where
   pure x = Cons x Zero
-  (<*>) = mkBinOp (const Zero) $ \fx fxs ys -> fmap fx ys <> (fxs <*> ys)
+  -- TODO: r?
+  (<*>) = mkBinOp (const Zero) $ \_r fx fxs ys -> fmap fx ys <> (fxs <*> ys)
 
 -- Create a less polymorphic variant that helps avoid ambigous type errors.
 -- Using the same visible type application inline doesn't seem to help in some cases.
@@ -603,12 +666,6 @@ instance (IsMset (Mset a)) => IsMset (Mset (Mset a)) where
   maxDepth AntiZero = 0
   maxDepth x        = 1 + maximum (fmap maxDepth x)
 
-  -- negation has some special rules to avoid contradictions like:
-  -- (-0 - p)  !=  -(0 + p)
-  -- p - 0 = -p  -- this would differ from how normal integers work)
-  -- TODO: this hasn't yet been covered in videos, it might change
-  minus x        Zero     = x
-  minus x        AntiZero = x
-  minus Zero     y        = neg y
-  minus AntiZero y        = neg y
-  minus x        y        = plus x (neg y)
+  minus x y = x `plus` (Cons AntiZero Zero `times` y)  -- x + (-1 * y)
+  -- TODO: plus/neg should work too; change definition of neg?
+  -- minus x y = plus x (neg y)

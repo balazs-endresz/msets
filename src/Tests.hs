@@ -79,18 +79,20 @@ tests = flip (>>) (putStrLn "") $ do
   -0 * -0       =:  0
   -0*[1,2]      =: -0
   [1,a 0,0] * [1, a 0,0] =: [2]
-  [1, -0,0] * [1,  -0,0] =: [2] -- TODO this should be [2] as well!
+  [1, -0,0] * [1,  -0,0] =: [2]
 
-  -- negation
-  0  -  0 =:  0
-  -0 - -0 =: -0
-  0  - -0 =:  0
-  -0 -  0 =: -0
-  1  -  0 =:  1
-  0  -  1 =: -1
-  1  - -0 =:  1
-  -0 -  1 =: -1
-  -0 - -1 =:  1
+  -- negation (NB `-0` is shorthand for `a 0`, `anti 0`, `AntiZero`)
+  0  -  0 =:    0
+  -0 - -0 =:    0 -- -0 + (-1*-0) = -0 + (-0) =    0
+  0  - -0 =:   -0 --  0 + (-1*-0) =  0 + (-0) =   -0
+  -0 -  0 =:   -0 -- -0 + (-1* 0) = -0 +   0  =   -0
+  -- ^ subtraction with Zero and AntiZero is the same as addition/baseOp
+  1  -  0 =:    1
+  0  -  1 =:   -1 --  0 + (-1* 1) =  0 + (-1) =   -1
+  1  - -0 =: a  1 --  1 + (-1*-0) =  1 + (-0) = a  1
+  -0 -  1 =: a -1 -- -0 + (-1* 1) = -0 + (-1) = a -1
+  -0 - -1 =: a  1 -- -0 + (-1*-1) = -0 +   1  = a  1
+  -- ^ AntiZero on either side is same as if it was Zero but makes it an anti-mset
 
   let x = a [a [1], 2, [], -0]
   let xSquared = [a [0,0,1],a [0,0,1],4,[1,1]]
