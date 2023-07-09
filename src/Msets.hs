@@ -135,7 +135,7 @@ isEmpty Zero     = True
 isEmpty AntiZero = True
 isEmpty _        = False
 
--- returns True for [] and -[] too, but using it with Base is a type error
+-- returns True for Zero and False for AntiZero, but using it with a Base type is a type error
 -- isInt :: Mset (Mset a) -> Bool
 isInt x = not (isAnti x) && all isEmpty x
 
@@ -158,15 +158,11 @@ anti (ConsMul r x xs) = ConsMul r x (anti xs)
 -- shortcut for anti
 a = anti
 
--- takes the "anti" of the immediate children, or the anti of an empty mset
--- TODO: this shouldn't be used for Num!
-neg Zero     = AntiZero
-neg AntiZero = Zero
-neg x        = fmap anti x
+-- takes the "anti" of the immediate children, leaves empty msets as is
+neg = fmap anti
 
--- this is defined for empty msets too (maybe shouldn't be but makes things easier)
-isNeg Zero     = False
-isNeg AntiZero = True
+isNeg Zero     = undefined
+isNeg AntiZero = undefined
 isNeg x        = all isAnti x
 
 -- filter elements (top level only)
@@ -225,10 +221,14 @@ instance (Ord (Mset a)) => Ord (Mset (Mset a)) where
   compare AntiZero Zero     = LT
   compare Zero     AntiZero = GT
   compare x@(isInt -> True) y@(isInt -> True)
-    | isNeg x, isNeg y = compare (length y) (length x)
-    | isNeg x          = LT
-    | isNeg y          = GT
-    | otherwise        = compare (length x) (length y)
+    | isNeg' x, isNeg' y = compare (length y) (length x)
+    | isNeg' x           = LT
+    | isNeg' y           = GT
+    | otherwise          = compare (length x) (length y)
+    where
+      isNeg' Zero     = False
+      isNeg' AntiZero = False
+      isNeg' x        = isNeg x
   compare Zero        (Cons _ xs) = if isAnti xs then GT else LT
   compare (Cons _ xs) Zero        = if isAnti xs then LT else GT
   compare AntiZero    (Cons _ xs) = if isAnti xs then GT else LT
@@ -281,7 +281,7 @@ instance (Eq (Mset a)) => Eq (Mset (Mset a)) where
 -- Show
 
 showBase Zero     = "0"
-showBase AntiZero = "-0"
+showBase AntiZero = "a 0"
 
 showMsetAsInt Zero     = showBase Zero
 showMsetAsInt AntiZero = showBase AntiZero
@@ -290,6 +290,8 @@ showMsetAsInt x
   | isNeg  x = '-' : showMsetAsInt (neg x)
   | isInt  x = show $ length (filterMset isZero x) - length (filterMset isAntiZero x)
 
+showMsetAsList _ Zero     = "[]"
+showMsetAsList _ AntiZero = "a []"
 showMsetAsList f xs
   | isAnti xs = "a " ++ showMsetAsList f (anti xs)
   | isNeg  xs = '-' : showMsetAsList f (neg xs)
@@ -315,9 +317,9 @@ instance Show' (Mset ()) where
   showCons Zero = "Zero"
   showCons AntiZero = "AntiZero"
   showEmpty Zero = "[]"
-  showEmpty AntiZero = "-[]"
+  showEmpty AntiZero = "a []"
   showZeros Zero = "0"
-  showZeros AntiZero = "-0"
+  showZeros AntiZero = "a 0"
 
 instance (Show' (Mset a)) => Show' (Mset (Mset a)) where
   showCons Zero = "Zero"
@@ -325,10 +327,10 @@ instance (Show' (Mset a)) => Show' (Mset (Mset a)) where
   showCons (Cons x y) = "(Cons " ++ showCons x ++ " " ++ showCons y ++ ")"
   showCons (ConsR r x y) = "(ConsR (" ++ show r ++ ") " ++ showCons x ++ " " ++ showCons y ++ ")"
   showEmpty Zero = "[]"
-  showEmpty AntiZero = "-[]"
+  showEmpty AntiZero = "a []"
   showEmpty xs = showMsetAsList showEmpty xs
   showZeros Zero = "0"
-  showZeros AntiZero = "-0"
+  showZeros AntiZero = "a 0"
   showZeros xs = showMsetAsList showZeros xs
 
 
@@ -423,8 +425,10 @@ instance (IsMset (Mset a), Ord (Mset a), ShowA (Mset (Mset (Mset a))))
       showProd Zero     = "1"
       showProd AntiZero = "-1"
       showProd x        = joinMapTimes "" alphaSubLength (sortMset $ eliminate x) where
-        alphaSubLength x | isNeg x   = alphaSub (-(length x)) ++ "⁻"
-                         | otherwise = alphaSub (length x)
+        alphaSubLength Zero              = alphaSub 0
+        alphaSubLength AntiZero          = alphaSub 0 ++ "⁻"
+        alphaSubLength x@(isNeg -> True) = alphaSub (-(length x)) ++ "⁻"
+        alphaSubLength x                 = alphaSub (length x)
 
       joinMapPlus  sep f = intercalate sep . map withMul . countOccurrences . fmap (showAntiA f)
       joinMapTimes sep f = intercalate sep . map withExp . countOccurrences . fmap f
@@ -500,7 +504,7 @@ instance Semigroup (Mset a) where
 -- Applicative
 instance Applicative Mset where
   pure x = Cons x Zero
-  -- TODO: r?
+  -- TODO: assert r is always 1?
   (<*>) = mkBinOp (const Zero) $ \_r fx fxs ys -> fmap fx ys <> (fxs <*> ys)
 
 -- Create a less polymorphic variant that helps avoid ambigous type errors.
@@ -524,7 +528,9 @@ instance (IsMset a, Ord a) => Real (Mset a) where
 instance (IsMset a, Ord a) => Integral (Mset a) where
   quotRem x y = (fromIntegral q, fromIntegral r) where
     (q,r) = quotRem (toInteger x) (toInteger y)
-  toInteger = fromIntegral . assertInt toIntegral where
+  toInteger Zero     = 0
+  toInteger AntiZero = undefined
+  toInteger x = (fromIntegral . assertInt toIntegral) x where
     toIntegral x | isNeg x   = -(toIntegral (neg x))
                  | otherwise = fromIntegral (length x)
 
@@ -545,8 +551,7 @@ instance (IsMset a, Ord a) => Fractional (Mset (Mset (Mset a))) where
 instance Num (Mset ()) where
   (+) = baseOp
   (*) = baseOp
-  negate Zero     = AntiZero
-  negate AntiZero = Zero
+  negate = id  -- to be consistent with negating zero, which remains zero
   fromInteger x | x == 0    = Zero
                 | otherwise = error "Specify a higher level Mset type"
   abs    = undefined
@@ -564,12 +569,14 @@ instance IsMset (Mset a) => Num (Mset (Mset a)) where
 
   -- TODO: eliminate
   abs Zero = 0
+  abs AntiZero = undefined
   abs n
     | not $ isInt n = undefined
     | isNeg n       = neg n
     | otherwise     = n
 
   signum Zero = 0
+  signum AntiZero = undefined
   signum n
     | not $ isInt n = undefined
     | isNeg n       = -1
@@ -637,7 +644,7 @@ instance IsMset (Mset ()) where
   caret    = baseOp
   minDepth = const 0
   maxDepth = const 0
-  minus    = baseOp  -- TODO
+  minus    = baseOp
 
 instance (IsMset (Mset a)) => IsMset (Mset (Mset a)) where
   type Elem (Mset (Mset a)) = (Mset a)
@@ -646,7 +653,7 @@ instance (IsMset (Mset a)) => IsMset (Mset (Mset a)) where
   plus x y = eliminate $ x <> y
 
   times AntiZero AntiZero = Zero
-  times AntiZero x        = AntiZero  -- M*-0=-0 if M!=-0
+  times AntiZero x        = AntiZero  -- M*(a 0)=(a 0) if M!=a 0
   times x        AntiZero = AntiZero
   times x        y        = eliminate $ liftA2 plus x y
 
@@ -654,7 +661,7 @@ instance (IsMset (Mset a)) => IsMset (Mset (Mset a)) where
   -- TODO: rename to wedge? because we have ^ for the ordinary exponentiation built-in
   -- TODO: do we maybe need special rules for minus one too?
   caret AntiZero AntiZero = Zero
-  caret AntiZero x        = AntiZero  -- M^-0=-0 if M!=-0 ???
+  caret AntiZero x        = AntiZero  -- M^(a 0)=(a 0) if M!=(a 0) ???
   caret x        AntiZero = AntiZero
   caret x        y        = eliminate $ liftA2 times x y
 
@@ -666,6 +673,4 @@ instance (IsMset (Mset a)) => IsMset (Mset (Mset a)) where
   maxDepth AntiZero = 0
   maxDepth x        = 1 + maximum (fmap maxDepth x)
 
-  minus x y = x `plus` (Cons AntiZero Zero `times` y)  -- x + (-1 * y)
-  -- TODO: plus/neg should work too; change definition of neg?
-  -- minus x y = plus x (neg y)
+  minus x y = plus x (neg y)

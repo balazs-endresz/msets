@@ -38,26 +38,26 @@ assertRaises x = catch @ErrorCall (show x `seq` putStrLn "\nFAIL") (const $ putS
 
 tests = flip (>>) (putStrLn "") $ do
   []   =: Zero
-  -[]  =: AntiZero
+  -[]  =: Zero  -- this is undefined for Base but for e.g. IntM and above negation won't change the anti-ness
   0    =: Zero
-  -0   =: AntiZero
+  a 0  =: AntiZero
   a [] =: AntiZero
-  (-0::M) ==  (0::M) ==: False  -- 0 and -0 shouldn't equal as mests
-  (-0::M) === (0::M) ==: False  -- 0 and -0 shouldn't equal as mests
+  (a 0::M) ==  (0::M) ==: False  -- 0 and a 0 shouldn't equal as mests
+  (a 0::M) === (0::M) ==: False  -- 0 and a 0 shouldn't equal as mests
   -0 == 0 ==: True   -- without RebindableSyntax these will default to Int
   2 ^ 3 =: 8  -- ordinary exponentiation, not the same as caret/wedge, int exponent only
 
-  [0] + -[]     =: [0] + a []
-  [0] + -[]     =: a 1
+  -- [0] + -[]     =: [0] + a []  -- these are not equal becayse -[] is not the same as `a []`
+  -- [0] + -[]     =: a 1
   [0] + a [0]   =: a 2
   [0] + -[0]    =: 0
   [0] + a -[0]  =: [0] + a [a 0]
   [1] + a [a 0] =: a [1, a 0]
 
-  -(-0) =: 0
-  -0    =: a 0
-  0+0   =: 0
-  0+ -0 =: -0
+  -(a 0) =: a 0  -- negate AntiZero is still AntiZero for a generic mset, but undefined for Base
+  a 0    =: a 0
+  0+0    =: 0
+  0+ a 0 =: a 0
   -1    =: neg 1
   -[0]  =: [a 0]
   1+1   =: 2
@@ -65,36 +65,41 @@ tests = flip (>>) (putStrLn "") $ do
   1+1   =: 2
   [0]   =: 1
   -[0]  =: -1
-  -[-0] =: 1
+  -[a 0] =: 1
 
-  1 + -0        =: a 1
-  [0] +  -0 + 0 =: a 1
+  1 + a 0        =: a 1
+  [0] +  a 0 + 0 =: a 1
   [0] + a 0 + 0 =: a 1
-  -- [2] + -0      =: a [2]
+  -- [2] + a 0      =: a [2]
   -- -[1]+[0,0]    =: [-1,0,0]
-  [2,[-3]] + -0 =: a [2,[-3]]
-  1 * -0        =: -0
-  [1]*[1]       =: [2]
-  [1,2] * -0    =: -0
-  -0 * -0       =:  0
-  -0*[1,2]      =: -0
-  [1,a 0,0] * [1, a 0,0] =: [2]
-  [1, -0,0] * [1,  -0,0] =: [2]
+  [2,[-3]] + a 0 =: a [2,[-3]]
+  1 * a 0        =: a 0
+  [1]*[1]        =: [2]
+  [1,2] * a 0    =: a 0
+  a 0 * a 0      =:   0
+  a 0*[1,2]      =: a 0
+  [1, a 0,0] * [1, a 0,0] =: [2]
+  [1, a 0,0] * [1, a 0,0] =: [2]
 
-  -- negation (NB `-0` is shorthand for `a 0`, `anti 0`, `AntiZero`)
-  0  -  0 =:    0
-  -0 - -0 =:    0 -- -0 + (-1*-0) = -0 + (-0) =    0
-  0  - -0 =:   -0 --  0 + (-1*-0) =  0 + (-0) =   -0
-  -0 -  0 =:   -0 -- -0 + (-1* 0) = -0 +   0  =   -0
+  -- negation (NB `a 0` is shorthand for `a 0`, `anti 0`, `AntiZero`)
+  0   -   0 =:     0
+  a 0 - a 0 =:     0 -- a 0 + (-1 * a 0) = a 0 + (a 0) =   0
+  0   - a 0 =:   a 0 --   0 + (-1 * a 0) =   0 + (a 0) = a 0
+  a 0 -   0 =:   a 0 -- a 0 + (-1 *   0) = a 0 +    0  = a 0
   -- ^ subtraction with Zero and AntiZero is the same as addition/baseOp
-  1  -  0 =:    1
-  0  -  1 =:   -1 --  0 + (-1* 1) =  0 + (-1) =   -1
-  1  - -0 =: a  1 --  1 + (-1*-0) =  1 + (-0) = a  1
-  -0 -  1 =: a -1 -- -0 + (-1* 1) = -0 + (-1) = a -1
-  -0 - -1 =: a  1 -- -0 + (-1*-1) = -0 +   1  = a  1
+  1   -   0 =:    1
+  0   -   1 =:   -1 --   0 + (-1 *   1) =   0 +  (-1) =   -1
+  1   - a 0 =: a  1 --   1 + (-1 * a 0) =   1 + (a 0) = a  1
+  a 0 -   1 =: a -1 -- a 0 + (-1 *   1) = a 0 +  (-1) = a -1
+  a 0 -  -1 =: a  1 -- a 0 + (-1 *  -1) = a 0 +    1  = a  1
   -- ^ AntiZero on either side is same as if it was Zero but makes it an anti-mset
 
-  let x = a [a [1], 2, [], -0]
+  -- subtraction produces the same result for x+(negate y) and x+(-1*y)
+  let x = 5
+  let y = 2
+  plus x (neg y) =: x `plus` (Cons AntiZero Zero `times` y)
+
+  let x = a [a [1], 2, [], a 0]
   let xSquared = [a [0,0,1],a [0,0,1],4,[1,1]]
   xSquared =: x*x
 
@@ -125,13 +130,13 @@ tests = flip (>>) (putStrLn "") $ do
   filterMset (const True)    -[2,1]  =: -[2,1]
   filterMset (const False)    [2,1]  =:   0
   filterMset (const False)   -[2,1]  =:   0  -- -[2,1] == [a 2, a 1]
-  filterMset (const False) (a [2,1]) =:  -0
+  filterMset (const False) (a [2,1]) =:  a 0
   filterMset isEmpty          [2,0]  =:  [0]
   filterMset isZero           [2,0]  =:  [0]
   filterMset isInt    [2,0,[3],-1,0] =:  [2,0,-1,0]
   filterMset isInt  [a 2,0,[3],-1,0] =:  [0,-1,0]
 
-  let x = -[] + [-[1], 2, 3, [], -0]
+  let x = a [] + [-[1], 2, 3, [], a 0]
   let result = [9,6,[a 1,a 1,a 1], 6,4,[a 1,a 1], [a 1,a 1,a 1],[a 1,a 1],[2]]
   x ∧ x =: result
   a [[a 1],2,3] ∧ x =: result
@@ -140,8 +145,8 @@ tests = flip (>>) (putStrLn "") $ do
   [-2,[1]]     ∧ [-2,[1]] =: [-[1,1],-[1,1],4,[2]]
   -[-3,-2,[1]] ∧  0 =:  0
   -[-3,-2,[1]] ∧  1 =: -3
-  [-3,-2,[1]]  ∧ -0 =: -0  -- TODO: follow the same rule as multiply?
-  -[-3,-2,[1]] ∧ -0 =: -0
+  [-3,-2,[1]]  ∧ a 0 =: a 0  -- TODO: follow the same rule as multiply?
+  -[-3,-2,[1]] ∧ a 0 =: a 0
   -[1]         ∧ -1 =: -1
   -[1,1]       ∧ -1 =: -2
   a [1]        ∧ -1 =: a -1
@@ -150,7 +155,7 @@ tests = flip (>>) (putStrLn "") $ do
   minDepth ([3,[1,[[2]]]]::M) =: 2
   maxDepth ([3,[1,[[2]]]]::M) =: 5
 
-  -- showZeros ([[[-0]]]::M) ==: "[[[-0]]]"
+  -- showZeros ([[[a 0]]]::M) ==: "[[[a 0]]]"
   -- showZeros (-[[[0]]]::M) ==: "-[[[0]]]"
 
   -- Eq, StrictEq
@@ -165,27 +170,27 @@ tests = flip (>>) (putStrLn "") $ do
   (-1::M) > -2 ==: True
 
   -- Show
-  show (-0::Base) ==: "-0"  -- won't work with RebindableSyntax because 0 is Mset (Mset a)
-  show (-0::M)    ==: "-0"
-  showMsetAsInt ([0,0,0,-0]::IntM) ==: "2" -- won't work with RebindableSyntax because 0 is already `Mset (Mset a)`
-  showMsetAsInt ([0,0,0,-0]::Poly) ==: "2"
-  -- The following works only with RebindableSyntax. Because by default :t +d -0 is Integer.
+  show (a 0::Base) ==: "a 0"  -- won't work with RebindableSyntax because 0 is Mset (Mset a)
+  show (a 0::M)    ==: "a 0"
+  showMsetAsInt ([0,0,0,a 0]::IntM) ==: "2" -- won't work with RebindableSyntax because 0 is already `Mset (Mset a)`
+  showMsetAsInt ([0,0,0,a 0]::Poly) ==: "2"
+  -- The following works only with RebindableSyntax. Because by default :t +d a 0 is Integer.
   -- However, it might also work if LexicalNegation was disabled here:
   -- > Under LexicalNegation, negated literals are desugared without negate.
   -- > That is, -123 stands for fromInteger (-123) rather than negate (fromInteger 123).
   -- TODO: LexicalNegation makes the tests a lot simpler but otherwise it could be dropped.
-  -- show (-0)    ==: "-0"
+  -- show (a 0)    ==: "a 0"
 
   -- showAlpha for empty and int
   0    =@ "0"
-  -0   =@ "-0"
+  a 0  =@ "a 0"
   1    =@ "1"
   -1   =@ "-1"
   [0]  =@ "1"
   -[0] =@ "-1"
-  a -[0]    =@ "a -1"
-  a [-0,-0] =@ "a -2"
-  a [0,0]   =@ "a 2"
+  a -[0]      =@ "a -1"
+  a [a 0,a 0] =@ "a -2"
+  a [0,0]     =@ "a 2"
   -- showAlpha for poly
   [1]   =@ "α"
   [1,1] =@ "2α"
@@ -214,13 +219,13 @@ tests = flip (>>) (putStrLn "") $ do
   [[1],[2],[2],[3]] =@ "α₁+2α₂+α₃"
   [0,[7,2],0] =@ "2+α₂α₇"
   []       =@ "0"
-  -[]      =@ "-0"
-  [0,-0]   =@ "0"
+  a []     =@ "a 0"
+  [0,a 0]  =@ "0"
   [0]      =@ "1"
   -[0]     =@ "-1"
   [0,0]    =@ "2"
   -[0,0]   =@ "-2"
-  [0,-0,1] =@ "α"
+  [0,a 0,1] =@ "α"
   -- TODO: showAlpha for multi with more anti/negative elements
   [[0]]    =@ "α"  -- we can't tell if this should be α₀ or α, so we use α
   [[1]]    =@ "α₁"
@@ -305,7 +310,7 @@ test_MF232 = do
   -- MF232/5
   let p =  [0,0,2,2,2,5]
   p     =@ "2+3α²+α⁵"
-  -p    =: [-0,-0,a 2,a 2,a 2,a 5]
+  -p    =: [a 0,a 0,a 2,a 2,a 2,a 5]
   -p    =@ "-2-3α²-α⁵"
   let q =  [0,a 1,a 2,3]
   q     =@ "1-α-α²+α³"  -- last term incorrect on the whiteboard in the video

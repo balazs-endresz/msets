@@ -15,24 +15,22 @@ Click the button below to start a new development environment:
 Then type `ghci` in the terminal in the bottom panel. Within `ghci` one can perform operations with msest:
 
 ```hs
-ghci> -0        -- anti-zero is represented as -0, or -[] (NB this syntax might change soon with rational numbers!)
--0
-ghci> [1] + -0  -- adding -0 creates an anti mset
+ghci> :t 1
+1 :: Mset (Mset a)  -- numeric literals should be msets by default in ghci, see the `.ghci` file
+ghci> [1] + a 0 -- adding anti zero creates an anti mset
 a [1]
-ghci> -[0,0]    -- for anything that's not 0 the minus sign makes only the elements "anti"
+ghci> -[0,0]    -- make the elements "anti"
 -2              -- == [-0,-0]
 ghci> a -[0,0]  -- the function `a` makes an mset an anti-mset (not the elements)
 a -2            -- == a [-0,-0]
-ghci> [1] - 0   -- negation currently works more like with ordinary integers,
-[1]             -- but this might change later, see the `neg` function in `src/Msets.hs`
 ghci> [1,[2]] * [[3]]
 [[0,3],[2,3]]
 ghci> showAlpha' [-1,-1,-3,1,2,2,4]  -- showAlpha' is a shortcut for `showAlpha ([...]::M)`
 α⁻³+2α⁻¹+α+2α²+α⁴
-ghci> [1] + -0 == a [1]       -- type error, try adding a type annotation:
-ghci> [1] + -0 == (a [1]::M)  -- the type M is applied to one of the sub-expressions
+ghci> [1] + a 0 == a [1]       -- type error, try adding a type annotation:
+ghci> [1] + a 0 == (a [1]::M)  -- the type M is applied to one of the sub-expressions
 True
-ghci> [1] + -0 == fix (a [1]) -- the `fix` function does the same
+ghci> [1] + a 0 == fix (a [1]) -- the `fix` function does the same
 True
 ```
 
