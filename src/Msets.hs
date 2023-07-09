@@ -12,8 +12,8 @@
 -- {-# LANGUAGE NoMonomorphismRestriction #-}
 -- {-# LANGUAGE AllowAmbiguousTypes   #-}
 
-{-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
 {-# OPTIONS_GHC -Wno-missing-pattern-synonym-signatures #-}
+{-# OPTIONS_GHC -Wincomplete-patterns #-}
 
 module Msets where
 
@@ -51,9 +51,9 @@ pattern Pred mset = Cons AntiZero mset
 pattern ConsR mul a mset = ConsMul (Mul mul) a mset
 
 -- Type synonyms
-type Base = Mset ()  -- Zero, AntiZero
-type IntM = Mset Base  -- 1, 2, -1, etc (the type `Int`, `Integer` already exists)
-type Poly = Mset IntM
+type Base  = Mset ()    -- Zero, AntiZero
+type IntM  = Mset Base  -- 1, 2, -1, etc (the type `Int`, `Integer` already exists)
+type Poly  = Mset IntM
 type Multi = Mset Poly
 
 -- Analogous to: type Rational = Ratio Integer
@@ -75,6 +75,8 @@ type Alpha = forall a. (IsMset a) => Mset (Mset (Mset a))
 type G = forall a. (IsMset a) => Mset (Mset (Mset (Mset (Mset (Mset (Mset (Mset (Mset a))))))))
 
 
+-- Functions
+
 fix x = x :: M
 
 isZero Zero = True
@@ -95,15 +97,16 @@ baseOp Zero     Zero     = Zero
 baseOp AntiZero AntiZero = Zero
 baseOp Zero     AntiZero = AntiZero
 baseOp AntiZero Zero     = AntiZero
+baseOp _        _        = error "Unexpected non-empty mset"
 
 -- this doesn't check isAnti for any of the containing elements, only at the top level
-isAnti Zero        = False
-isAnti AntiZero    = True
+isAnti Zero             = False
+isAnti AntiZero         = True
 isAnti (ConsMul _ _ xs) = isAnti xs
 
 -- takes the "anti" of the top level only; containing elements are left unchanged
-anti Zero        = AntiZero
-anti AntiZero    = Zero
+anti Zero             = AntiZero
+anti AntiZero         = Zero
 anti (ConsMul r x xs) = ConsMul r x (anti xs)
 
 -- shortcut for anti
@@ -191,6 +194,7 @@ instance Ord (Mset ()) where
   compare Zero     Zero     = EQ
   compare AntiZero Zero     = LT
   compare Zero     AntiZero = GT
+  compare _        _        = error "Unexpected non-empty mset"
 
 instance (Ord (Mset a)) => Ord (Mset (Mset a)) where
   compare AntiZero AntiZero = EQ
@@ -217,6 +221,7 @@ instance (Ord (Mset a)) => Ord (Mset (Mset a)) where
       other -> if ax == ay then (if ax then compare y x else other) else (if ax then LT else GT)
       where ax = isAnti xs
             ay = isAnti ys
+  compare _ _ = error "compare: non-exhaustive patterns"
 
 
 -- StrictEq (exact equality without normalizing msets)
@@ -269,6 +274,7 @@ instance IsList (Mset a) where
   toList (ConsMul (Mul r) x xs) | denominator (toRational r) == 1 = replicate (toInt r) x ++ toList xs
     where
       toInt = fromInteger . numerator . toRational
+  toList _ = error "Mset can't be converted to list"
 
   -- `fromList -[]` is not necessary because `-[]` is `negate []`,
   -- so `fromList` will be called before `negate`
@@ -276,14 +282,15 @@ instance IsList (Mset a) where
   -- There's currently no way to make Mset the default instance for [] without RebindableSyntax:
   -- https://downloads.haskell.org/~ghc/9.4.1-rc1/docs/users_guide/exts/overloaded_lists.html?highlight=defaulting#defaulting
 
--- This helper function takes care of the anti-ness of either msets when
--- they are passed to a binary function. A bit contrived but fun abstraction.
+-- This helper function takes care of the anti-ness of either msets
+-- when they are passed to a binary function.
 mkBinOp ifZero ifNonZero = go where
-  go x y | Zero <- x          = ifZero y
-         | isAnti x, isAnti y = anti x `go` anti y
-         | isAnti x           = anti (anti x `go` y)
-         | isAnti y           = anti (x `go` anti y)
+  go x y | Zero <- x              = ifZero y
+         | isAnti x, isAnti y     = anti x `go` anti y
+         | isAnti x               = anti (anti x `go` y)
+         | isAnti y               = anti (x `go` anti y)
          | (ConsMul r x' xs) <- x = ifNonZero r x' xs y
+         | otherwise              = error "mkBinOp: non-exhaustive patterns"
 
 -- Semigroup
 -- Concatenate msets (without eliminating anti and non-anti pairs).
@@ -293,8 +300,9 @@ instance Semigroup (Mset a) where
 -- Applicative
 instance Applicative Mset where
   pure x = Cons x Zero
-  -- TODO: assert r is always 1?
-  (<*>) = mkBinOp (const Zero) $ \_r fx fxs ys -> fmap fx ys <> (fxs <*> ys)
+  -- we expect the multiplicities in the first argument to be all 1 (that's an mset of functions)
+  (<*>) = mkBinOp (const Zero) $ \1 f fs ys -> fmap f ys <> (fs <*> ys)
+
 
 -- Create a less polymorphic variant that helps avoid ambigous type errors.
 -- Using the same visible type application inline doesn't seem to help in some cases.
@@ -323,17 +331,17 @@ instance (IsMset a, Ord a) => Integral (Mset a) where
     toIntegral x | isNeg x   = -(toIntegral (neg x))
                  | otherwise = fromIntegral (length x)
 
-assertInt f x = if not (isInt x) then error "non-integer shaped mset" else f x
+assertInt f x = if not (isInt x) then error "Mset can't be converted to int" else f x
 
 -- TODO: currently defined only for Poly and above
 instance (IsMset a, Ord a) => Fractional (Mset (Mset (Mset a))) where
   -- recip = fmap . fmap anti
   recip x | maxDepth x > 1 = fmap neg x
 
-  -- convert from a Rational value (which is `Ratio Integer`) to mset
-  -- fromRational (x :% y) =  fromInteger $ round (fromInteger x / fromInteger y)
+  -- Convert from a Rational value (which is `Ratio Integer`) to an mset.
+  -- fromRational (x :% y) = fromInteger $ round (fromInteger x / fromInteger y)
   -- This doesn't make sense for Poly but we could define it for int msets that are divisible.
-  fromRational = undefined
+  fromRational = undefined  -- TODO
 
 
 -- Num (Base)
@@ -355,6 +363,7 @@ instance IsMset (Mset a) => Num (Mset (Mset a)) where
   fromInteger n | n == 0 = Zero
                 | n >  0 = stimes  n (Cons Zero     Zero)
                 | n <  0 = stimes -n (Cons AntiZero Zero)
+  fromInteger _ = error "fromInteger: non-exhaustive patterns"
 
   -- TODO: eliminate
   abs Zero = 0
@@ -396,9 +405,7 @@ class (a ~ Mset (Elem a), Eq a) => IsMset a where
 -- Counting functions: https://youtu.be/TqKacqHS-fA?t=645
 -- Unlike the ones in the video these return an anti-mset when applied to an anti-mset
 countZ :: Mset a -> Mset b
-countZ Zero        = Zero
-countZ AntiZero    = AntiZero
-countZ (Cons _ xs) = countZ xs
+countZ x = if isAnti x then AntiZero else Zero
 countN :: Mset (Mset a) -> Mset (Mset b)
 countN = fmap countZ
 countP :: Mset (Mset (Mset a)) -> Mset (Mset (Mset b))
@@ -429,17 +436,19 @@ align x y | maxDepth x <= maxDepth y = unsafeCoerce x
 instance IsMset (Mset ()) where
   type Elem (Mset ()) = ()
   plus     = baseOp
+  minus    = baseOp
   times    = baseOp
   caret    = baseOp
   minDepth = const 0
   maxDepth = const 0
-  minus    = baseOp
 
 instance (IsMset (Mset a)) => IsMset (Mset (Mset a)) where
   type Elem (Mset (Mset a)) = (Mset a)
 
   -- laws for anti-msets, plus, minus: https://www.youtube.com/watch?v=KQ1o_NYhQNA
   plus x y = eliminate $ x <> y
+
+  minus x y = plus x (neg y)
 
   times AntiZero AntiZero = Zero
   times AntiZero x        = AntiZero  -- M*(a 0)=(a 0) if M!=a 0
@@ -461,5 +470,3 @@ instance (IsMset (Mset a)) => IsMset (Mset (Mset a)) where
   maxDepth Zero     = 0
   maxDepth AntiZero = 0
   maxDepth x        = 1 + maximum (fmap maxDepth x)
-
-  minus x y = plus x (neg y)

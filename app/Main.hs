@@ -4,14 +4,22 @@
 {-# LANGUAGE RebindableSyntax #-}
 {-# LANGUAGE NoMonomorphismRestriction #-}
 
+{-# OPTIONS_GHC -Wno-unused-imports #-}
+
 -- This module uses RebindableSyntax, which makes numeric literals and lists
 -- have an mset type by default. This way type annotations are usually not necessary.
 
 module Main where
+
+import Data.Ratio
+import Data.Semigroup
 import GHC.Exts (toList)
 import Prelude qualified (fromInteger, (^), (^^))
 import Prelude hiding (fromInteger, (^), (^^))
+
 import Msets
+import Multiplicity
+import Show
 import Tests
 
 -- Numeric literals are msets by default in this file, so we get 0::Int some other way.

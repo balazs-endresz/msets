@@ -1,6 +1,8 @@
 {-# LANGUAGE GHC2021           #-}
 {-# LANGUAGE LexicalNegation   #-}
 
+{-# OPTIONS_GHC -fwarn-incomplete-patterns #-}
+
 module Multiplicity where
 
 import Data.Ratio
