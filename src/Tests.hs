@@ -11,6 +11,7 @@ import Control.Exception (catch, ErrorCall)
 import GHC.Stack (callStack,  prettyCallStack, HasCallStack)
 
 import Msets
+import Show
 
 -- two general values are equal and converted to string the same way
 infixl 1 ==:
