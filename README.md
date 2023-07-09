@@ -41,3 +41,7 @@ Note that by the default `ghci` will use `RebindableSyntax`, but `src/Msets.hs` 
 The project is based on https://github.com/lsmor/template-haskell and bumps the default ghc version to 9.4.4
 
 To run locally install https://www.haskell.org/ghcup/ Upgrading the default ghc version might be needed too: `ghcup set ghc 9.4.4`. Then just type `ghci`.
+
+TODO
+
+* [ ] Fractional multiplicities can be also constructed but most functions don't work with these yet.

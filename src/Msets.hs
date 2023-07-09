@@ -24,6 +24,7 @@ import Data.Ratio
 import Data.Semigroup
 import GHC.Exts (IsList(..))
 import Unsafe.Coerce (unsafeCoerce)
+import Multiplicity
 
 -- Data
 data Mset a = AntiZero
@@ -31,57 +32,9 @@ data Mset a = AntiZero
             | ConsMul Multiplicity a (Mset a)
   deriving (Foldable, Functor, Traversable)
 
+-- Pattern Synonyms
 
-data Multiplicity where
-  One :: Multiplicity
-  Mul :: (Real m, Show m, Eq m, Ord m) => m -> Multiplicity  -- `Num m` doesn't work here
-
-instance Show Multiplicity where
-  show One = "1"
-  show (Mul r)
-   | denominator (toRational r) == 1 = show . numerator . toRational $ r
-   | otherwise = show r
--- TODO:
--- ghci> Mul (2%3)
--- 2 % 3
--- ghci> 2/3
--- • No instance for (Fractional (Mset (Mset ())))
-
-instance Eq Multiplicity where
-  One   == One   = True
-  One   == Mul r = 1 == r
-  Mul r == One   = r == 1
-  Mul r == Mul s = toRational r == toRational s
-
-instance Ord Multiplicity where
-  compare One     One     = EQ
-  compare One     (Mul r) = compare 1 r
-  compare (Mul r) One     = compare r 1
-  compare (Mul r) (Mul s) = compare (toRational r) (toRational s)
-
-instance Num Multiplicity where
-  One   + One   = Mul 2
-  One   + Mul r = Mul (1+r)
-  Mul r + One   = Mul (r+1)
-  Mul r + Mul s = Mul (toRational r + toRational s)
-
-  One   * One   = Mul 1
-  One   * Mul r = Mul r
-  Mul r * One   = Mul r
-  Mul r * Mul s = Mul (toRational r * toRational s)
-
-  negate One     = Mul -1
-  negate (Mul r) = Mul -r
-
-  fromInteger = Mul . fromInteger
-
-  abs One     = 1
-  abs (Mul r) = Mul (abs r)
-
-  signum One     = 1
-  signum (Mul r) = Mul (signum r)
-
--- Cons can be used when the multiplicity is one (needed to construct IntM)
+-- Cons can be used when the multiplicity is One (needed to construct IntM)
 pattern Cons :: a -> Mset a -> Mset a
 pattern Cons a mset = ConsMul One a mset
 
@@ -93,10 +46,11 @@ pattern Succ mset = Cons Zero mset
 pattern Pred :: IntM -> IntM
 pattern Pred mset = Cons AntiZero mset
 
--- ConsR allows working directly with the Num value, without the Multiplicity its wrapped in.
--- pattern ConsR :: (Real m, Show m, Eq m, Ord m) => m -> a -> Mset a -> Mset a
+-- Shorthand to add an element with arbitrary multiplicity:
+-- e.g. `ConsR (3%2) Zero Zero` instead of `ConsMul (Mul (3%2)) Zero Zero`
+-- TODO: fix type error when pattern signature is commented out
+-- pattern ConsR :: (Real m, Show m) => m -> a -> Mset a -> Mset a
 pattern ConsR mul a mset = ConsMul (Mul mul) a mset
-
 
 -- Type synonyms
 type Base = Mset ()  -- Zero, AntiZero
@@ -152,7 +106,6 @@ isAnti (ConsMul _ _ xs) = isAnti xs
 -- takes the "anti" of the top level only; containing elements are left unchanged
 anti Zero        = AntiZero
 anti AntiZero    = Zero
--- anti (Cons x xs) = Cons x (anti xs)
 anti (ConsMul r x xs) = ConsMul r x (anti xs)
 
 -- shortcut for anti
@@ -325,7 +278,7 @@ instance (Show' (Mset a)) => Show' (Mset (Mset a)) where
   showCons Zero = "Zero"
   showCons AntiZero = "AntiZero"
   showCons (Cons x y) = "(Cons " ++ showCons x ++ " " ++ showCons y ++ ")"
-  showCons (ConsR r x y) = "(ConsR (" ++ show r ++ ") " ++ showCons x ++ " " ++ showCons y ++ ")"
+  showCons (ConsMul r x y) = "(ConsR (" ++ show r ++ ") " ++ showCons x ++ " " ++ showCons y ++ ")"
   showEmpty Zero = "[]"
   showEmpty AntiZero = "a []"
   showEmpty xs = showMsetAsList showEmpty xs
@@ -477,7 +430,7 @@ instance IsList (Mset a) where
   toList Zero        = []
   toList (Cons x xs) = x : toList xs
   -- undefined for fractional multiplicities:
-  toList (ConsR r x xs) | denominator (toRational r) == 1 = replicate (toInt r) x ++ toList xs
+  toList (ConsMul (Mul r) x xs) | denominator (toRational r) == 1 = replicate (toInt r) x ++ toList xs
     where
       toInt = fromInteger . numerator . toRational
 
