@@ -123,8 +123,8 @@ isNeg x        = all isAnti x
 -- filterMset :: (a -> Bool) -> Mset a -> Mset a
 filterMset _ Zero     = Zero
 filterMset _ AntiZero = AntiZero
-filterMset f (Cons x xs)
-         | f x        = Cons x (filterMset f xs)
+filterMset f (ConsMul r x xs)
+         | f x        = ConsMul r x (filterMset f xs)
          | otherwise  = filterMset f xs
 
 sortMsetWith cmp mset = if isAnti mset then anti sorted else sorted
@@ -132,8 +132,8 @@ sortMsetWith cmp mset = if isAnti mset then anti sorted else sorted
     sorted = foldr insertBy [] mset
     insertBy x Zero     = Cons x Zero
     insertBy x AntiZero = Cons x AntiZero
-    insertBy x ys@(Cons y ys')
-        | cmp x y == GT = Cons y (insertBy x ys')
+    insertBy x ys@(ConsMul r y ys')
+        | cmp x y == GT = ConsMul r y (insertBy x ys')
         | otherwise     = Cons x ys
 
 -- sort elements (top level only)
@@ -143,23 +143,21 @@ sortMset = sortMsetWith compare
 -- returns a new mset with the first argument removed from it
 deleteMset _ Zero        = Zero
 deleteMset _ AntiZero    = AntiZero
--- deleteMset x (Cons y ys)
---          | x == y    = ys
---          | otherwise = Cons y (deleteMset x ys)
 deleteMset x (ConsMul r y ys)
-         | r <  0         = undefined -- expect it to be normalised already
-         | r == 0         = ys
+         | r <  0         = deleteMset x $ ConsMul -r (anti y) ys
+         | r == 0         = deleteMset x ys
          | r == 1, x == y = ys
          | x == y         = ConsMul (r-1) y (deleteMset x ys)
          | otherwise      = ConsMul  r    y (deleteMset x ys)
 
 -- eliminate mset and anti-mset pairs (top level only)
 -- TODO: add recursive variant
--- TODO: handle multiplicities properly:  if r > 0
 eliminate Zero       = Zero
 eliminate AntiZero   = AntiZero
 eliminate (ConsMul r x xs)
-  | anti x `elem` xs = eliminate (deleteMset (anti x) xs)
+  | r == 0           = eliminate xs
+  | r <  0           = eliminate $ ConsMul -r (anti x) xs
+  | anti x `elem` xs = eliminate $ deleteMset (anti x) $ ConsMul (r-1) x xs
   | otherwise        = ConsMul r x (eliminate xs)
 
 
@@ -210,18 +208,17 @@ instance (Ord (Mset a)) => Ord (Mset (Mset a)) where
       isNeg' Zero     = False
       isNeg' AntiZero = False
       isNeg' x        = isNeg x
-  compare Zero        (Cons _ xs) = if isAnti xs then GT else LT
-  compare (Cons _ xs) Zero        = if isAnti xs then LT else GT
-  compare AntiZero    (Cons _ xs) = if isAnti xs then GT else LT
-  compare (Cons _ xs) AntiZero    = if isAnti xs then LT else GT
-  compare (Cons _ AntiZero) (Cons _ Zero)     = LT
-  compare (Cons _ Zero)     (Cons _ AntiZero) = GT
-  compare (Cons x xs) (Cons y ys) = case compare x y of
+  compare Zero        (ConsMul _ _ xs) = if isAnti xs then GT else LT
+  compare (ConsMul _ _ xs) Zero        = if isAnti xs then LT else GT
+  compare AntiZero    (ConsMul _ _ xs) = if isAnti xs then GT else LT
+  compare (ConsMul _ _ xs) AntiZero    = if isAnti xs then LT else GT
+  compare (ConsMul _ _ AntiZero) (ConsMul _ _ Zero)     = LT
+  compare (ConsMul _ _ Zero)     (ConsMul _ _ AntiZero) = GT
+  compare (ConsMul _ x xs) (ConsMul _ y ys) = case compare x y of
       EQ    -> compare xs ys
       other -> if ax == ay then (if ax then compare y x else other) else (if ax then LT else GT)
       where ax = isAnti xs
             ay = isAnti ys
-  compare _ _ = error "compare: non-exhaustive patterns"
 
 
 -- StrictEq (exact equality without normalizing msets)
@@ -234,10 +231,10 @@ instance StrictEq (Mset ()) where
   _        === _        = False
 
 instance (StrictEq (Mset a)) => StrictEq (Mset (Mset a)) where
-  Zero       === Zero       = True
-  AntiZero   === AntiZero   = True
-  (Cons a b) === (Cons c d) = (a === c) && (b === d)
-  _          === _          = False
+  Zero             === Zero             = True
+  AntiZero         === AntiZero         = True
+  (ConsMul r x xs) === (ConsMul s y ys) = (r == s) && (x === y) && (xs === ys)
+  _                === _                = False
 
 
 -- Eq (Mset ())
@@ -248,17 +245,16 @@ instance Eq (Mset ())  where
 
 -- Eq (Mset a)
 instance (Eq (Mset a)) => Eq (Mset (Mset a)) where
-  -- x == y = eq (eliminate $ fmap eliminate x) (eliminate $ fmap eliminate y) where -- TODO
-  x == y = eq (eliminate x) (eliminate y) where
-    eq Zero     Zero     = True
-    eq AntiZero AntiZero = True
-    eq (Cons x xs) ys = maybe False (eq xs . flip deleteMset ys . nth ys) (elemIndex x ys)
-    eq _           _  = False
-    -- re-define list functions for msets:
-    nth = (!!) . toList
-    elemIndex x xs = go xs 0 where
-      go (Cons y ys) i = if x == y then Just i else go ys (i+1)
-      go _           _ = Nothing  -- empty
+  x == y = eliminate x `eq` eliminate y where
+    Zero     `eq` Zero     = True
+    AntiZero `eq` AntiZero = True
+    xxs@(ConsMul _ x xs) `eq` yys@(ConsMul _ y ys)
+      -- multiplicities are already positive here because of `eliminate`
+      | x == y       = deleteMset x xxs == deleteMset y yys
+      | x `elem` yys = xs == deleteMset x yys
+      | otherwise    = False
+    eq _ _ = False
+
 
 -- List
 -- The list instance is defined for use mainly by the OverloadedLists extension.
@@ -337,6 +333,7 @@ assertInt f x = if not (isInt x) then error "Mset can't be converted to int" els
 instance (IsMset a, Ord a) => Fractional (Mset (Mset (Mset a))) where
   -- recip = fmap . fmap anti
   recip x | maxDepth x > 1 = fmap neg x
+  recip _ = error "Not implemented"
 
   -- Convert from a Rational value (which is `Ratio Integer`) to an mset.
   -- fromRational (x :% y) = fromInteger $ round (fromInteger x / fromInteger y)
