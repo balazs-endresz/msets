@@ -29,6 +29,8 @@ data Mset a = AntiZero
             | Zero
             | ConsMul Multiplicity a (Mset a)
   deriving (Foldable, Functor, Traversable)
+  -- NB functions relying on derived instances should be used with `eliminate`,
+  -- so that e.g. `elem` doesn't return true for zero or negative multiplicity elements.
 
 -- Pattern Synonyms
 
@@ -141,24 +143,31 @@ sortMset :: (Ord a) => Mset a -> Mset a
 sortMset = sortMsetWith compare
 
 -- returns a new mset with the first argument removed from it
-deleteMset _ Zero        = Zero
-deleteMset _ AntiZero    = AntiZero
+deleteMset _ Zero     = Zero
+deleteMset _ AntiZero = AntiZero
 deleteMset x (ConsMul r y ys)
-         | r <  0         = deleteMset x $ ConsMul -r (anti y) ys
-         | r == 0         = deleteMset x ys
-         | r == 1, x == y = ys
-         | x == y         = ConsMul (r-1) y (deleteMset x ys)
-         | otherwise      = ConsMul  r    y (deleteMset x ys)
+     | r <  0         = deleteMset x $ ConsMul -r (anti y) ys
+     | r == 0         = deleteMset x ys
+     | r == 1, x == y = ys
+     | x == y         = ConsMul (r-1) y (deleteMset x ys)
+     | otherwise      = ConsMul  r    y (deleteMset x ys)
 
--- eliminate mset and anti-mset pairs (top level only)
+-- eliminate mset and anti-mset pairs and zero/negative multiplicities (top level only)
 -- TODO: add recursive variant
 eliminate Zero       = Zero
 eliminate AntiZero   = AntiZero
 eliminate (ConsMul r x xs)
+  -- remove element with 0 multiplicity
   | r == 0           = eliminate xs
+  -- take the anti of an element if it has negative multiplicity
   | r <  0           = eliminate $ ConsMul -r (anti x) xs
+  -- remove an mset and anti-mset pair
   | anti x `elem` xs = eliminate $ deleteMset (anti x) $ ConsMul (r-1) x xs
+  -- process the rest of the mset if there isn't an anti-mset pair for this element
   | otherwise        = ConsMul r x (eliminate xs)
+
+-- to be used for likely false positive non-exhaustive patterns flagged by the linter
+unexpectedPattern fn = error $ fn ++ ": unexpected pattern"
 
 
 -- Alpha expressions
@@ -192,7 +201,7 @@ instance Ord (Mset ()) where
   compare Zero     Zero     = EQ
   compare AntiZero Zero     = LT
   compare Zero     AntiZero = GT
-  compare _        _        = error "Unexpected non-empty mset"
+  compare _        _        = unexpectedPattern "compare"
 
 instance (Ord (Mset a)) => Ord (Mset (Mset a)) where
   compare AntiZero AntiZero = EQ
@@ -238,7 +247,7 @@ instance (StrictEq (Mset a)) => StrictEq (Mset (Mset a)) where
 
 
 -- Eq (Mset ())
-instance Eq (Mset ())  where
+instance Eq (Mset ()) where
   Zero     == Zero     = True
   AntiZero == AntiZero = True
   _        == _        = False
@@ -259,24 +268,26 @@ instance (Eq (Mset a)) => Eq (Mset (Mset a)) where
 -- List
 -- The list instance is defined for use mainly by the OverloadedLists extension.
 -- For everything else, use fmap, filterMset, liftA2Mset, etc instead:
--- these will handle anti-msets correctly.
+-- those will handle anti-msets correctly.
 instance IsList (Mset a) where
   type Item (Mset a) = a
-  fromList []        = Zero
-  fromList (x:xs)    = Cons x (fromList xs)
+
+  fromList []     = Zero
+  fromList (x:xs) = Cons x (fromList xs)
+
+  -- toList is undefined for fractional multiplicities and AntiZero
   toList Zero        = []
   toList (Cons x xs) = x : toList xs
-  -- undefined for fractional multiplicities:
-  toList (ConsMul (Mul r) x xs) | denominator (toRational r) == 1 = replicate (toInt r) x ++ toList xs
+  toList (ConsMul (Mul r) x xs)
+    -- | r <  0 = toList $ ConsMul (Mul -r) (anti x) xs  -- TODO: IsList (Mset (Mset a))
+    | r <  0 = error "Mset with negative multiplicity can't be converted to list"
+    | r == 0 = toList xs
+    | isInt  = replicate (toInt r) x ++ toList xs
     where
+      isInt = denominator (toRational r) == 1
       toInt = fromInteger . numerator . toRational
-  toList _ = error "Mset can't be converted to list"
-
-  -- `fromList -[]` is not necessary because `-[]` is `negate []`,
-  -- so `fromList` will be called before `negate`
-  -- `toList AntiZero` is undefined for the same reason.
-  -- There's currently no way to make Mset the default instance for [] without RebindableSyntax:
-  -- https://downloads.haskell.org/~ghc/9.4.1-rc1/docs/users_guide/exts/overloaded_lists.html?highlight=defaulting#defaulting
+  toList AntiZero = error "Anti-mset can't be converted to list"
+  toList _ = unexpectedPattern "toList"
 
 -- This helper function takes care of the anti-ness of either msets
 -- when they are passed to a binary function.
@@ -286,7 +297,7 @@ mkBinOp ifZero ifNonZero = go where
          | isAnti x               = anti (anti x `go` y)
          | isAnti y               = anti (x `go` anti y)
          | (ConsMul r x' xs) <- x = ifNonZero r x' xs y
-         | otherwise              = error "mkBinOp: non-exhaustive patterns"
+         | otherwise              = unexpectedPattern "mkBinOp"
 
 -- Semigroup
 -- Concatenate msets (without eliminating anti and non-anti pairs).
@@ -342,14 +353,15 @@ instance (IsMset a, Ord a) => Fractional (Mset (Mset (Mset a))) where
 
 
 -- Num (Base)
+numError = error "Specify a higher level Mset type"
 instance Num (Mset ()) where
   (+) = baseOp
   (*) = baseOp
-  negate = id  -- to be consistent with negating zero, which remains zero
-  fromInteger x | x == 0    = Zero
-                | otherwise = error "Specify a higher level Mset type"
-  abs    = undefined
-  signum = undefined
+  fromInteger 0 = Zero
+  fromInteger _ = numError
+  abs    = numError
+  signum = numError
+  negate = numError
 
 -- Num (IntM, Poly, etc)
 instance IsMset (Mset a) => Num (Mset (Mset a)) where
@@ -360,7 +372,7 @@ instance IsMset (Mset a) => Num (Mset (Mset a)) where
   fromInteger n | n == 0 = Zero
                 | n >  0 = stimes  n (Cons Zero     Zero)
                 | n <  0 = stimes -n (Cons AntiZero Zero)
-  fromInteger _ = error "fromInteger: non-exhaustive patterns"
+  fromInteger _ = unexpectedPattern "fromInteger"
 
   -- TODO: eliminate
   abs Zero = 0
