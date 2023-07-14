@@ -139,6 +139,7 @@ sortMsetWith cmp mset = if isAnti mset then anti sorted else sorted
         | otherwise     = Cons x ys
 
 -- sort elements (top level only)
+-- the recursive variant is sortMset'
 sortMset :: (Ord a) => Mset a -> Mset a
 sortMset = sortMsetWith compare
 
@@ -153,7 +154,7 @@ deleteMset x (ConsMul r y ys)
      | otherwise      = ConsMul  r    y (deleteMset x ys)
 
 -- eliminate mset and anti-mset pairs and zero/negative multiplicities (top level only)
--- TODO: add recursive variant
+-- the recursive variant is eliminate'
 eliminate Zero       = Zero
 eliminate AntiZero   = AntiZero
 eliminate (ConsMul r x xs)
@@ -168,6 +169,10 @@ eliminate (ConsMul r x xs)
 
 -- to be used for likely false positive non-exhaustive patterns flagged by the linter
 unexpectedPattern fn = error $ fn ++ ": unexpected pattern"
+
+errorNotInt = error "Mset is not shaped like an integer"
+
+assertInt f x = let i = eliminate' x in if not (isInt i) then errorNotInt else f i
 
 
 -- Alpha expressions
@@ -332,13 +337,13 @@ instance (IsMset a, Ord a) => Real (Mset a) where
 instance (IsMset a, Ord a) => Integral (Mset a) where
   quotRem x y = (fromIntegral q, fromIntegral r) where
     (q,r) = quotRem (toInteger x) (toInteger y)
+
   toInteger Zero     = 0
-  toInteger AntiZero = undefined
+  toInteger AntiZero = errorNotInt
   toInteger x = (fromIntegral . assertInt toIntegral) x where
     toIntegral x | isNeg x   = -(toIntegral (neg x))
                  | otherwise = fromIntegral (length x)
 
-assertInt f x = if not (isInt x) then error "Mset can't be converted to int" else f x
 
 -- TODO: currently defined only for Poly and above
 instance (IsMset a, Ord a) => Fractional (Mset (Mset (Mset a))) where
@@ -374,20 +379,16 @@ instance IsMset (Mset a) => Num (Mset (Mset a)) where
                 | n <  0 = stimes -n (Cons AntiZero Zero)
   fromInteger _ = unexpectedPattern "fromInteger"
 
-  -- TODO: eliminate
-  abs Zero = 0
-  abs AntiZero = undefined
-  abs n
-    | not $ isInt n = undefined
-    | isNeg n       = neg n
-    | otherwise     = n
+  abs = assertInt abs' where
+    abs' Zero = 0
+    abs' n | isNeg n   = neg n
+           | otherwise = n
 
-  signum Zero = 0
-  signum AntiZero = undefined
-  signum n
-    | not $ isInt n = undefined
-    | isNeg n       = -1
-    | otherwise     = 1
+  signum = assertInt signum' where
+    signum' Zero = 0
+    signum' n | isNeg n   = -1
+              | otherwise =  1
+
 
 -- IsMset
 -- This class allows defining operations between:
@@ -399,17 +400,18 @@ instance IsMset (Mset a) => Num (Mset (Mset a)) where
 -- * a concrete type `Base`
 -- * a generic type `Mset a`
 -- * a higher level type `IntM`, `Poly`, `Multi`, etc
-class (a ~ Mset (Elem a), Eq a) => IsMset a where
+class (a ~ Mset (Elem a), Eq a, Ord a) => IsMset a where
   type Elem a
   plus  :: a -> a -> a
+  minus :: a -> a -> a
   times :: a -> a -> a
   caret :: a -> a -> a
-  (∧)   :: a -> a -> a
-  (∧) = caret
-  infixr 8 ∧
-  minDepth  :: (Num b, Ord b) => a -> b
-  maxDepth  :: (Num b, Ord b) => a -> b
-  minus     :: a -> a -> a
+  (∧)   :: a -> a -> a;
+  (∧) = caret; infixr 8 ∧
+  minDepth   :: (Num b, Ord b) => a -> b
+  maxDepth   :: (Num b, Ord b) => a -> b
+  eliminate' :: a -> a
+  sortMset'  :: a -> a  -- the `Ord a` constraint in the class definition is needed for this
 
 -- Counting functions: https://youtu.be/TqKacqHS-fA?t=645
 -- Unlike the ones in the video these return an anti-mset when applied to an anti-mset
@@ -444,12 +446,15 @@ align x y | maxDepth x <= maxDepth y = unsafeCoerce x
 
 instance IsMset (Mset ()) where
   type Elem (Mset ()) = ()
-  plus     = baseOp
-  minus    = baseOp
-  times    = baseOp
-  caret    = baseOp
+  plus  = baseOp
+  minus = baseOp
+  times = baseOp
+  caret = baseOp
   minDepth = const 0
   maxDepth = const 0
+  eliminate' = id
+  sortMset'  = id
+
 
 instance (IsMset (Mset a)) => IsMset (Mset (Mset a)) where
   type Elem (Mset (Mset a)) = (Mset a)
@@ -479,3 +484,6 @@ instance (IsMset (Mset a)) => IsMset (Mset (Mset a)) where
   maxDepth Zero     = 0
   maxDepth AntiZero = 0
   maxDepth x        = 1 + maximum (fmap maxDepth x)
+
+  eliminate' = eliminate . fmap eliminate'
+  sortMset'  = sortMset  . fmap sortMset'

@@ -251,6 +251,11 @@ tests = flip (>>) (putStrLn "") $ do
   recip α₁ =: [[a 1]]
   1 / α₁   =: [[a 1]]
 
+  -- abs: nested list with zero multiplicities gets eliminated
+  let z = ConsR 0 (ConsR 0 Zero Zero) $ ConsR 0 Zero Zero
+  eliminate' (fix z) ==: Zero
+  abs z =: 0
+
   test_MF228
   test_MF232
 
