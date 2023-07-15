@@ -14,8 +14,8 @@ module Main where
 import Data.Ratio
 import Data.Semigroup
 import GHC.Exts (toList)
-import Prelude qualified (fromInteger, (^), (^^))
-import Prelude hiding (fromInteger, (^), (^^))
+import Prelude qualified (fromInteger, toInteger, toRational, (^), (^^))
+import Prelude hiding (fromInteger, toInteger, toRational, (^), (^^))
 
 import Msets
 import Multiplicity
@@ -36,8 +36,12 @@ fromInteger :: Integer -> Mset (Mset a)
 fromInteger n | n >= izero = fromList $ replicate (Prelude.fromInteger n) Zero
               | n <  izero = neg $ fromInteger -n
 
-x ^  y = (Prelude.^ ) x (toInteger @IntM y)
-x ^^ y = (Prelude.^^) x (toInteger @IntM y)
+toInteger = Prelude.toInteger @IntM
+
+x ^  y = (Prelude.^ ) x (toInteger y)
+x ^^ y = (Prelude.^^) x (toInteger y)
+
+toRational = Prelude.toRational @IntM
 
 -- values have Mset types by default without type signatures
 x0 = 0
