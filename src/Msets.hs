@@ -167,6 +167,9 @@ eliminate (ConsMul r x xs)
   -- process the rest of the mset if there isn't an anti-mset pair for this element
   | otherwise        = ConsMul r x (eliminate xs)
 
+normalise :: IsMset a => a -> a  -- this doesn't type check without a signature
+normalise = sortMset' . eliminate'
+
 -- to be used for likely false positive non-exhaustive patterns flagged by the linter
 unexpectedPattern fn = error $ fn ++ ": unexpected pattern"
 
@@ -399,7 +402,8 @@ instance IsMset (Mset a) => Num (Mset (Mset a)) where
 -- Even `Zero` and `AntiZero` can have:
 -- * a concrete type `Base`
 -- * a generic type `Mset a`
--- * a higher level type `IntM`, `Poly`, `Multi`, etc
+-- * a higher level type `IntM`, `Poly`, `Multi`, etc.
+-- The `Ord` constraint is needed for sortMset' and for various classes in Show.hs that need sorting.
 class (a ~ Mset (Elem a), Eq a, Ord a) => IsMset a where
   type Elem a
   plus  :: a -> a -> a
@@ -411,7 +415,7 @@ class (a ~ Mset (Elem a), Eq a, Ord a) => IsMset a where
   minDepth   :: (Num b, Ord b) => a -> b
   maxDepth   :: (Num b, Ord b) => a -> b
   eliminate' :: a -> a
-  sortMset'  :: a -> a  -- the `Ord a` constraint in the class definition is needed for this
+  sortMset'  :: a -> a
 
 -- Counting functions: https://youtu.be/TqKacqHS-fA?t=645
 -- Unlike the ones in the video these return an anti-mset when applied to an anti-mset

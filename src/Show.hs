@@ -37,8 +37,8 @@ instance Show (Mset ()) where
   show = showBase
 
 -- Show
-instance (IsMset (Mset a), Ord (Mset a), Show a, Show (Mset a)) => Show (Mset (Mset a)) where
-  show = go . sortMset . eliminate where
+instance (Show (Mset a), IsMset (Mset a)) => Show (Mset (Mset a)) where
+  show = go . normalise where
     go x | all isEmpty x = showMsetAsInt x  -- this matches empty msets too
          | otherwise     = showMsetAsList show x
 
@@ -56,24 +56,27 @@ instance Show' (Mset ()) where
   showZeros Zero = "0"
   showZeros AntiZero = "a 0"
 
-instance (Show' (Mset a)) => Show' (Mset (Mset a)) where
-  showCons Zero = "Zero"
-  showCons AntiZero = "AntiZero"
-  showCons (Cons x y) = "(Cons " ++ showCons x ++ " " ++ showCons y ++ ")"
-  showCons (ConsMul r x y) = "(ConsR (" ++ show r ++ ") " ++ showCons x ++ " " ++ showCons y ++ ")"
-  showEmpty Zero = "[]"
-  showEmpty AntiZero = "a []"
-  showEmpty xs = showMsetAsList showEmpty xs
-  showZeros Zero = "0"
-  showZeros AntiZero = "a 0"
-  showZeros xs = showMsetAsList showZeros xs
+instance (Show' (Mset a), IsMset (Mset a)) => Show' (Mset (Mset a)) where
+  showCons = go . normalise where
+    go Zero = "Zero"
+    go AntiZero = "AntiZero"
+    go (Cons x xs) = "(Cons " ++ showCons x ++ " " ++ showCons xs ++ ")"
+    go (ConsMul r x xs) = "(ConsR (" ++ show r ++ ") " ++ showCons x ++ " " ++ showCons xs ++ ")"
+
+  showEmpty = go . normalise where
+    go Zero = "[]"
+    go AntiZero = "a []"
+    go xs = showMsetAsList showEmpty xs
+
+  showZeros = go . normalise where
+    go Zero = "0"
+    go AntiZero = "a 0"
+    go xs = showMsetAsList showZeros xs
 
 
 -- Render unicode characters like 'α' properly in ghci, and without the qoutes.
 -- GHC has `Show Char` and `Show [a]` but we can add a more specific instance for [Char].
 -- Note that it also removes qoutes from all num-like strings globally.
--- This can be confusing but it's not an essential behaviour either.
--- It's just for e.g. 0::Alpha, 1::Alpha, etc.
 instance {-# OVERLAPPING #-} Show String where
   show x | "" <- x        = "\"\""
          | 'α' `elem` x   = x
@@ -113,12 +116,12 @@ instance ShowA IntM where
   showAlpha = showMsetAsInt
 instance ShowA Poly where
   showAlpha = showAlpha . upcast
-instance (IsMset (Mset a), Ord (Mset a), ShowA (Mset (Mset (Mset a))))
+instance (IsMset (Mset a), ShowA (Mset (Mset (Mset a))))
          => ShowA (Mset (Mset (Mset (Mset a)))) where
   -- TODO: rewrite this in a more sensible way
   showAlpha x = plusMinToMin $  go (prepare x)
     where
-      prepare = sortMsetWith compareA . eliminate
+      prepare = sortMsetWith compareA . eliminate'
       go x = case maxDepth x of
           0 -> showBase x       -- empty
           1 -> showMsetAsInt x  -- int
@@ -136,7 +139,7 @@ instance (IsMset (Mset a), Ord (Mset a), ShowA (Mset (Mset (Mset a))))
 
       showProd Zero     = "1"
       showProd AntiZero = "-1"
-      showProd x        = joinMapTimes "" alphaSubLength (sortMset $ eliminate x) where
+      showProd x        = joinMapTimes "" alphaSubLength (sortMset x) where
         alphaSubLength Zero              = alphaSub 0
         alphaSubLength AntiZero          = alphaSub 0 ++ "⁻"
         alphaSubLength x@(isNeg -> True) = alphaSub (-(length x)) ++ "⁻"
