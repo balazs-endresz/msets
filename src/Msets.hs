@@ -93,6 +93,7 @@ isEmpty _        = False
 
 -- returns True for Zero and False for AntiZero, but using it with a Base type is a type error
 -- isInt :: Mset (Mset a) -> Bool
+-- TODO: fractional multiplicities
 isInt x = not (isAnti x) && all isEmpty x
 
 baseOp Zero     Zero     = Zero
@@ -131,12 +132,12 @@ filterMset f (ConsMul r x xs)
 
 sortMsetWith cmp mset = if isAnti mset then anti sorted else sorted
   where
-    sorted = foldr insertBy [] mset
-    insertBy x Zero     = Cons x Zero
-    insertBy x AntiZero = Cons x AntiZero
-    insertBy x ys@(ConsMul r y ys')
-        | cmp x y == GT = ConsMul r y (insertBy x ys')
-        | otherwise     = Cons x ys
+    sorted = foldrMul insertBy Zero mset
+    insertBy _ _ AntiZero = unexpectedPattern "sortMsetWith"
+    insertBy r x Zero     = ConsMul r x Zero
+    insertBy r x ys@(ConsMul s y ys')
+        | cmp x y == GT = ConsMul s y (insertBy r x ys')
+        | otherwise     = ConsMul r x ys
 
 -- sort elements (top level only)
 -- the recursive variant is sortMset'
@@ -147,7 +148,7 @@ sortMset = sortMsetWith compare
 deleteMset _ Zero     = Zero
 deleteMset _ AntiZero = AntiZero
 deleteMset x (ConsMul r y ys)
-     | r <  0         = deleteMset x $ ConsMul -r (anti y) ys
+     | r <  0         = error "Deleting element with negative multiplicity is not allowed"
      | r == 0         = deleteMset x ys
      | r == 1, x == y = ys
      | x == y         = ConsMul (r-1) y (deleteMset x ys)
@@ -155,27 +156,63 @@ deleteMset x (ConsMul r y ys)
 
 -- eliminate mset and anti-mset pairs and zero/negative multiplicities (top level only)
 -- the recursive variant is eliminate'
-eliminate Zero       = Zero
-eliminate AntiZero   = AntiZero
-eliminate (ConsMul r x xs)
-  -- remove element with 0 multiplicity
-  | r == 0           = eliminate xs
-  -- take the anti of an element if it has negative multiplicity
-  | r <  0           = eliminate $ ConsMul -r (anti x) xs
-  -- remove an mset and anti-mset pair
-  | anti x `elem` xs = eliminate $ deleteMset (anti x) $ ConsMul (r-1) x xs
-  -- process the rest of the mset if there isn't an anti-mset pair for this element
-  | otherwise        = ConsMul r x (eliminate xs)
+eliminate xxs = go (toPosMul xxs) where
+  go Zero       = Zero
+  go AntiZero   = AntiZero
+  go (ConsMul r x xs)
+    | anti x `elem` xs = eliminate $ ConsMul (r-1) x (deleteMset (anti x) xs)
+    | otherwise        = ConsMul r x (eliminate xs)
 
-normalise :: IsMset a => a -> a  -- this doesn't type check without a signature
-normalise = sortMset' . eliminate'
+-- Remove zero multiplicity elements and
+-- convert negative multiplicity elements to anti elements with positive multiplicity.
+toPosMul Zero       = Zero
+toPosMul AntiZero   = AntiZero
+toPosMul (ConsMul r x xs)
+  -- remove element with 0 multiplicity
+  | r == 0           = toPosMul xs
+  -- take the anti of an element if it has negative multiplicity
+  | r <  0           = toPosMul $ ConsMul -r (anti x) xs
+  -- process the rest of the mset
+  | otherwise        = ConsMul r x (toPosMul xs)
+
+foldlMul :: (acc -> Multiplicity -> x -> acc) -> acc -> Mset x -> acc
+foldlMul _ acc Zero = acc
+foldlMul _ acc AntiZero = acc
+foldlMul f acc (ConsMul r x xs) = foldlMul f (f acc r x) xs
+
+foldlMul' :: (acc -> Multiplicity -> x -> acc) -> acc -> Mset x -> acc
+foldlMul' _ acc Zero = acc
+foldlMul' _ acc AntiZero = acc
+foldlMul' f acc (ConsMul r x xs) = acc' `seq` foldlMul' f acc' xs
+  where acc' = f acc r x
+
+foldrMul :: (Multiplicity -> x -> acc -> acc) -> acc -> Mset x -> acc
+foldrMul _ acc Zero = acc
+foldrMul _ acc AntiZero = acc
+foldrMul f acc (ConsMul r x xs) = f r x (foldrMul f acc xs)
+
+-- merge multiple occurrences of the same elements and sum their multiplicity
+-- compact :: Eq a => Mset a -> Mset a
+compact xs = foldrMul f empty xs where
+  empty = if isAnti xs then AntiZero else Zero
+  f r x acc | x `elem` acc = updateMulFirstMatch x (r+) acc
+            | otherwise    = ConsMul r x acc
+  -- updateMulFirstMatch :: Eq a => a -> (Multiplicity -> Multiplicity) -> Mset a -> Mset a
+  updateMulFirstMatch _ _ Zero     = Zero
+  updateMulFirstMatch _ _ AntiZero = AntiZero
+  updateMulFirstMatch a f (ConsMul r x xs)
+    | a == x    = ConsMul (f r) x xs
+    | otherwise = ConsMul r x (updateMulFirstMatch a f xs)
+
+normalise :: (IsMset a, Eq (Elem a)) => a -> a
+normalise = sortMset' . eliminate' . compact . eliminate'
 
 -- to be used for likely false positive non-exhaustive patterns flagged by the linter
 unexpectedPattern fn = error $ fn ++ ": unexpected pattern"
 
-errorNotInt = error "Mset is not shaped like an integer"
-
-assertInt f x = let i = eliminate' x in if not (isInt i) then errorNotInt else f i
+-- if x is an integer mset then return `f x`, otherwise raise error
+assertInt f x = if isInt x' then f x' else error "Mset is not shaped like an integer"
+  where x' = eliminate' x
 
 
 -- Alpha expressions
@@ -341,10 +378,9 @@ instance (IsMset a, Ord a) => Integral (Mset a) where
   quotRem x y = (fromIntegral q, fromIntegral r) where
     (q,r) = quotRem (toInteger x) (toInteger y)
 
-  toInteger Zero     = 0
-  toInteger AntiZero = errorNotInt
-  toInteger x = (fromIntegral . assertInt toIntegral) x where
-    toIntegral x | isNeg x   = -(toIntegral (neg x))
+  toInteger = fromIntegral . assertInt toIntegral where
+    toIntegral x | Zero <- x = 0
+                 | isNeg x   = -(toIntegral (neg x))
                  | otherwise = fromIntegral (length x)
 
 

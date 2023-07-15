@@ -23,7 +23,10 @@ showMsetAsInt AntiZero = showBase AntiZero
 showMsetAsInt x
   | isAnti x = "a " ++ showMsetAsInt (anti x)
   | isNeg  x = '-' : showMsetAsInt (neg x)
-  | isInt  x = show $ length (filterMset isZero x) - length (filterMset isAntiZero x)
+  | isInt  x = show $ count (toPosMul x)
+    where
+      count Zero             = 0
+      count (ConsMul r x xs) = (if isAnti x then -r else r) + count xs
 
 showMsetAsList _ Zero     = "[]"
 showMsetAsList _ AntiZero = "a []"
@@ -61,17 +64,17 @@ instance (Show' (Mset a), IsMset (Mset a)) => Show' (Mset (Mset a)) where
     go Zero = "Zero"
     go AntiZero = "AntiZero"
     go (Cons x xs) = "(Cons " ++ showCons x ++ " " ++ showCons xs ++ ")"
-    go (ConsMul r x xs) = "(ConsR (" ++ show r ++ ") " ++ showCons x ++ " " ++ showCons xs ++ ")"
+    go (ConsMul r x xs) = "(ConsR " ++ show r ++ " " ++ showCons x ++ " " ++ showCons xs ++ ")"
 
   showEmpty = go . normalise where
     go Zero = "[]"
     go AntiZero = "a []"
-    go xs = showMsetAsList showEmpty xs
+    go xs = showMsetAsList showEmpty xs  -- TODO: multiplicity
 
   showZeros = go . normalise where
     go Zero = "0"
     go AntiZero = "a 0"
-    go xs = showMsetAsList showZeros xs
+    go xs = showMsetAsList showZeros xs  -- TODO: multiplicity
 
 
 -- Render unicode characters like 'α' properly in ghci, and without the qoutes.
