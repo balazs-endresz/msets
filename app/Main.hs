@@ -41,7 +41,28 @@ toInteger = Prelude.toInteger @IntM
 x ^  y = (Prelude.^ ) x (toInteger y)
 x ^^ y = (Prelude.^^) x (toInteger y)
 
-toRational = Prelude.toRational @IntM
+-- Usage:
+-- ghci> fix$ ConsR (toRationalI 2) Zero Zero
+-- 2
+-- ghci> fix$ ConsR (toRationalR (1%2)) Zero Zero
+-- 1 % 2
+-- ghci> fix$ consI 2 Zero Zero
+-- 2
+-- ghci> fix$ consR (1%2) Zero Zero
+-- 1 % 2
+-- NB % has lower precedence than function application, so
+-- (toRationalR 1%2) won't work, it has to be (toRationalR (1%2))
+toRationalI = Prelude.toRational @IntM
+toRationalR = Prelude.toRational @RationalM
+toRational = error "Use either toRationalI or toRationalR" -- TODO
+
+consI :: IntM -> a -> Mset a -> Mset a
+consI = ConsR
+-- consI = ConsR . toRationalI
+
+consR :: RationalM -> a -> Mset a -> Mset a
+consR = ConsR
+-- consR = ConsR . toRationalR
 
 -- values have Mset types by default without type signatures
 x0 = 0

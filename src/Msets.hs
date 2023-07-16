@@ -48,6 +48,7 @@ pattern Pred mset = Cons AntiZero mset
 
 -- Shorthand to add an element with arbitrary multiplicity:
 -- e.g. `ConsR (3%2) Zero Zero` instead of `ConsMul (Mul (3%2)) Zero Zero`
+-- TODO: make this work with RebindableSyntax too
 -- TODO: fix type error when pattern signature is commented out
 -- pattern ConsR :: (Real m, Show m) => m -> a -> Mset a -> Mset a
 pattern ConsR mul a mset = ConsMul (Mul mul) a mset
@@ -93,8 +94,12 @@ isEmpty _        = False
 
 -- returns True for Zero and False for AntiZero, but using it with a Base type is a type error
 -- isInt :: Mset (Mset a) -> Bool
--- TODO: fractional multiplicities
-isInt x = not (isAnti x) && all isEmpty x
+isIntOrRat x = not (isAnti x) && all isEmpty x
+
+-- TODO
+-- isInt x = isIntOrRat x && (denominator (toRational x) == 1)
+isInt = isIntOrRat
+
 
 baseOp Zero     Zero     = Zero
 baseOp AntiZero AntiZero = Zero
@@ -214,6 +219,9 @@ unexpectedPattern fn = error $ fn ++ ": unexpected pattern"
 assertInt f x = if isInt x' then f x' else error "Mset is not shaped like an integer"
   where x' = eliminate' x
 
+assertIntOrRat f x = if isIntOrRat x' then f x' else error "Mset is not shaped like an rational or integer"
+  where x' = eliminate' x
+
 
 -- Alpha expressions
 alpha n = [[fromIntegral n]] :: Alpha
@@ -253,7 +261,7 @@ instance (Ord (Mset a)) => Ord (Mset (Mset a)) where
   compare Zero     Zero     = EQ
   compare AntiZero Zero     = LT
   compare Zero     AntiZero = GT
-  compare x@(isInt -> True) y@(isInt -> True)
+  compare x@(isIntOrRat -> True) y@(isIntOrRat -> True)
     | isNeg' x, isNeg' y = compare (length y) (length x)
     | isNeg' x           = LT
     | isNeg' y           = GT
@@ -364,20 +372,32 @@ liftA2Mset = liftA2 @Mset
 --       • Couldn't match type ‘a1’ with ‘Elem (Mset a1)’
 --       • Could not deduce (Elem (Mset a0) ~ a0)
 
+-- fromIntegral is defined in base:
+-- WARNING: This function performs silent truncation if the result type is not
+-- at least as big as the argument's type. See also realToFrac.
+-- fromIntegral :: (Integral a, Num b) => a -> b
+-- fromIntegral = fromInteger . toInteger
+
 -- Enum (superclass of Integral)
 instance (IsMset a, Ord a) => Enum (Mset a) where
-  toEnum   = fromIntegral
+  toEnum :: Enum (Mset a) => Int -> Mset a
+  toEnum = fromIntegral
+
+  fromEnum :: Enum (Mset a) => Mset a -> Int
   fromEnum = assertInt fromIntegral
 
 -- Real (superclass of Integral)
 instance (IsMset a, Ord a) => Real (Mset a) where
-  toRational = assertInt fromIntegral
+  -- Returns the rational equivalent a Real (with full precision)
+  toRational :: Mset a -> Rational  -- Rational ~ Ratio Integer
+  toRational = assertIntOrRat fromIntegral
 
 -- Integral
 instance (IsMset a, Ord a) => Integral (Mset a) where
   quotRem x y = (fromIntegral q, fromIntegral r) where
     (q,r) = quotRem (toInteger x) (toInteger y)
 
+  toInteger :: Mset a -> Integer
   toInteger = fromIntegral . assertInt toIntegral where
     toIntegral x | Zero <- x = 0
                  | isNeg x   = -(toIntegral (neg x))
@@ -413,17 +433,19 @@ instance IsMset (Mset a) => Num (Mset (Mset a)) where
   (-) = minus
   (*) = times
   negate = neg
+  -- fromInteger n = ConsR n Zero Zero
+  fromInteger :: Integer -> Mset (Mset a)
   fromInteger n | n == 0 = Zero
                 | n >  0 = stimes  n (Cons Zero     Zero)
                 | n <  0 = stimes -n (Cons AntiZero Zero)
   fromInteger _ = unexpectedPattern "fromInteger"
 
-  abs = assertInt abs' where
+  abs = assertIntOrRat abs' where
     abs' Zero = 0
     abs' n | isNeg n   = neg n
            | otherwise = n
 
-  signum = assertInt signum' where
+  signum = assertIntOrRat signum' where
     signum' Zero = 0
     signum' n | isNeg n   = -1
               | otherwise =  1
